@@ -20,7 +20,7 @@ body {
   left: 0;
 }
 
-/* Floating HUD popup appearing OVER the canvas */
+/* Floating HUD popup (always over the canvas) */
 #hud {
   position: fixed;
   top: 10px;
@@ -28,7 +28,7 @@ body {
   background: rgba(240, 240, 240, 0.95);
   border: 1px solid #ccc;
   padding: 10px;
-  z-index: 1000; /* high value to be over canvas */
+  z-index: 1000; /* high z-index to float above canvas */
   max-width: 300px;
   max-height: 90vh;
   overflow-y: auto;
@@ -47,7 +47,7 @@ body {
   cursor: pointer;
 }
 
-/* Highlight active layer in layer list */
+/* Highlight active layer in layers list */
 #layerList li.active {
   background-color: #cceeff;
 }

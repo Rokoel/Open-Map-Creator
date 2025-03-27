@@ -5,6 +5,7 @@ export class HUD {
     this.setupToolbar();
     this.setupCanvasSettings();
     this.setupLayerControls();
+    this.setupEmptyCellSettings();
   }
 
   setupToolbar() {
@@ -15,6 +16,42 @@ export class HUD {
         this.canvasManager.setActiveInstrument(instrument);
         this.loadInstrumentSettings(instrument);
       }
+    });
+  }
+
+  setupEmptyCellSettings() {
+    const emptyFill = document.getElementById("emptyFillColor");
+    const emptyBorder = document.getElementById("emptyBorderColor");
+    const emptyPattern = document.getElementById("emptyPattern");
+
+    // Store these values in canvasManager; you might add properties for empty cell styling.
+    this.canvasManager.emptyCellSettings = {
+      fillColor: emptyFill.value,
+      borderColor: emptyBorder.value,
+      pattern: null,
+    };
+
+    emptyFill.addEventListener("input", (e) => {
+      this.canvasManager.emptyCellSettings.fillColor = e.target.value;
+      this.canvasManager.render();
+    });
+    emptyBorder.addEventListener("input", (e) => {
+      this.canvasManager.emptyCellSettings.borderColor = e.target.value;
+      this.canvasManager.render();
+    });
+    emptyPattern.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        let img = new Image();
+        img.onload = () => {
+          this.canvasManager.emptyCellSettings.pattern = img;
+          this.canvasManager.render();
+        };
+        img.src = event.target.result;
+      };
+      reader.readAsDataURL(file);
     });
   }
 
@@ -60,7 +97,6 @@ export class HUD {
     const instrSettings = document.getElementById("instrumentSettings");
     instrSettings.innerHTML = "";
     if (instrument === "gridDraw") {
-      // GridDraw controls: color pickers and image upload.
       const fillColorLabel = document.createElement("label");
       fillColorLabel.textContent = "Fill Color: ";
       const fillColorInput = document.createElement("input");
@@ -72,6 +108,28 @@ export class HUD {
       instrSettings.appendChild(fillColorLabel);
       instrSettings.appendChild(fillColorInput);
       instrSettings.appendChild(document.createElement("br"));
+      const imageListContainer = document.createElement("div");
+      imageListContainer.id = "gridImageList";
+      // If you have stored images, iterate and create thumbnail buttons.
+      if (this.canvasManager.gridImageList && this.canvasManager.gridImageList.length) {
+        this.canvasManager.gridImageList.forEach((imgSrc, idx) => {
+          const thumb = document.createElement("img");
+          thumb.src = imgSrc;
+          thumb.style.width = "40px";
+          thumb.style.height = "40px";
+          thumb.style.margin = "2px";
+          thumb.style.border = "1px solid #ccc";
+          thumb.addEventListener("click", () => {
+            let img = new Image();
+            img.src = imgSrc;
+            this.canvasManager.gridDrawSettings.image = img;
+            this.canvasManager.gridDrawSettings.type = "image";
+          });
+          imageListContainer.appendChild(thumb);
+        });
+      }
+      instrSettings.appendChild(imageListContainer);
+
 
       const borderColorLabel = document.createElement("label");
       borderColorLabel.textContent = "Border Color: ";
@@ -85,7 +143,7 @@ export class HUD {
       instrSettings.appendChild(borderColorInput);
       instrSettings.appendChild(document.createElement("br"));
 
-      // Upload an image to be used as cell pattern.
+      // Image upload for grid cell pattern.
       const cellImageLabel = document.createElement("label");
       cellImageLabel.textContent = "Cell Pattern Image: ";
       const cellImageInput = document.createElement("input");
@@ -99,8 +157,14 @@ export class HUD {
           const img = new Image();
           img.onload = () => {
             this.canvasManager.gridDrawSettings.image = img;
-            // Also change type to "image"
             this.canvasManager.gridDrawSettings.type = "image";
+            // Add to image list array.
+            if (!this.canvasManager.gridImageList) {
+              this.canvasManager.gridImageList = [];
+            }
+            this.canvasManager.gridImageList.push(img.src);
+            // Refresh the image list display.
+            this.loadInstrumentSettings("gridDraw");
           };
           img.src = event.target.result;
         };
@@ -108,8 +172,16 @@ export class HUD {
       });
       instrSettings.appendChild(cellImageLabel);
       instrSettings.appendChild(cellImageInput);
+      instrSettings.appendChild(document.createElement("br"));
+      // Button to return to non-image (color) grid drawing.
+      const switchBtn = document.createElement("button");
+      switchBtn.textContent = "Switch to Color Mode";
+      switchBtn.addEventListener("click", () => {
+        this.canvasManager.gridDrawSettings.type = "color";
+        this.canvasManager.gridDrawSettings.image = null;
+      });
+      instrSettings.appendChild(switchBtn);
     } else if (instrument === "freeDraw") {
-      // FreeDraw controls: colors, period, size, connect option, and optionally a pattern image.
       const fillColorLabel = document.createElement("label");
       fillColorLabel.textContent = "Fill Color: ";
       const fillColorInput = document.createElement("input");
@@ -150,9 +222,10 @@ export class HUD {
       sizeLabel.textContent = "Pattern Size (cells): ";
       const sizeInput = document.createElement("input");
       sizeInput.type = "number";
+      sizeInput.step = "0.1"; // allow float values
       sizeInput.value = this.canvasManager.freeDrawSettings.size;
       sizeInput.addEventListener("input", (e) => {
-        this.canvasManager.freeDrawSettings.size = parseInt(e.target.value, 10);
+        this.canvasManager.freeDrawSettings.size = parseFloat(e.target.value);
       });
       instrSettings.appendChild(sizeLabel);
       instrSettings.appendChild(sizeInput);
@@ -170,7 +243,7 @@ export class HUD {
       instrSettings.appendChild(connectInput);
       instrSettings.appendChild(document.createElement("br"));
 
-      // Optionally upload an image for freeDraw pattern.
+      // FreeDraw optional pattern image upload.
       const freeDrawImageLabel = document.createElement("label");
       freeDrawImageLabel.textContent = "FreeDraw Pattern Image: ";
       const freeDrawImageInput = document.createElement("input");
@@ -192,7 +265,6 @@ export class HUD {
       instrSettings.appendChild(freeDrawImageLabel);
       instrSettings.appendChild(freeDrawImageInput);
     } else if (instrument === "addObject") {
-      // For adding objects, allow image upload.
       const fileLabel = document.createElement("label");
       fileLabel.textContent = "Upload Object Image: ";
       const fileInput = document.createElement("input");
@@ -214,7 +286,6 @@ export class HUD {
       instrSettings.appendChild(fileLabel);
       instrSettings.appendChild(fileInput);
     } else if (instrument === "select") {
-      // For select tool, add controls for delete, rotate and resize.
       const deleteBtn = document.createElement("button");
       deleteBtn.textContent = "Delete Selected";
       deleteBtn.addEventListener("click", () => {

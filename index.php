@@ -7,7 +7,7 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0"
     />
     <title>TTRPG Map Creator</title>
-    <link rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="css/styles.css"/>
   </head>
   <body>
     <!-- Main canvas container -->
@@ -29,10 +29,20 @@
         <label for="cellSize">Cell Size (16–256 px): </label>
         <input type="range" id="cellSize" min="16" max="256" value="32" />
       </div>
+      
+      <div id="emptyCellSettings">
+        <h3>Empty Cell Appearance</h3>
+        <label for="emptyFillColor">Fill Color: </label>
+        <input id="emptyFillColor" type="color" value="#ffffff" /><br/>
+        <label for="emptyBorderColor">Border Color: </label>
+        <input id="emptyBorderColor" type="color" value="#e0e0e0" /><br/>
+        <label for="emptyPattern">Pattern Image: </label>
+        <input id="emptyPattern" type="file" accept="image/*" />
+      </div>
       <!-- Instrument Settings -->
       <div id="instrumentSettings">
         <h3>Instrument Settings</h3>
-        <!-- Instrument-specific controls load here -->
+        <!-- Instrument‑specific controls will be loaded here -->
       </div>
       <!-- Layer Controls -->
       <div id="layerControls">
@@ -41,13 +51,14 @@
         <button id="addLayer">Add Layer</button>
         <button id="removeLayer">Remove Selected Layer</button>
       </div>
-      <!-- Export/Import Controls -->
+      <!-- Export/Import/Restart Controls -->
       <div id="dataControls">
         <h3>Data</h3>
         <button id="exportMap">Export Map (JSON)</button>
         <button id="importMap">Import Map (JSON)</button>
         <button id="exportPDF">Export to PDF</button>
         <button id="clearCanvas">Clear Canvas</button>
+        <button id="restart">Restart</button>
       </div>
     </div>
 
