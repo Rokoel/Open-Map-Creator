@@ -36,6 +36,12 @@ export class CanvasManager {
     // To support freeDraw period.
     this.lastFreeDrawPosition = null;
 
+    this.emptyCellSettings = {
+      fillColor: "#ffffff",   // white
+      borderColor: "#e0e0e0", // light gray
+      pattern: null           // no pattern by default
+    };
+
     // Default settings for instruments.
     this.freeDrawSettings = {
       period: 0, // 0 means continuous drawing.
@@ -51,12 +57,6 @@ export class CanvasManager {
       fillColor: "#a0a0a0",
       borderColor: "#000000",
       image: null, // If an image is uploaded for a cell pattern.
-    };
-
-    this.emptyCellSettings = {
-      fillColor: "#ffffff",    // Default white background.
-      borderColor: "#e0e0e0",  // Default light gray grid lines.
-      pattern: null            // No default pattern.
     };
 
     // For the addObject tool.
@@ -781,6 +781,7 @@ export class CanvasManager {
         offsetY: this.offsetY,
         scale: this.scale,
         activeLayerIndex: this.activeLayerIndex,
+        emptyCellSettings: this.emptyCellSettings,
       },
     };
   }
@@ -828,6 +829,15 @@ export class CanvasManager {
       this.offsetY = data.settings.offsetY;
       this.scale = data.settings.scale;
       this.activeLayerIndex = data.settings.activeLayerIndex || 0;
+      if (data.settings.emptyCellSettings) {
+        this.emptyCellSettings = data.settings.emptyCellSettings;
+        // Optionally, if the pattern is a string, recreate an image.
+        if (this.emptyCellSettings.pattern && typeof this.emptyCellSettings.pattern === "string") {
+          let img = new Image();
+          img.src = this.emptyCellSettings.pattern;
+          this.emptyCellSettings.pattern = img;
+        }
+      }
     }
     this.render();
   }
