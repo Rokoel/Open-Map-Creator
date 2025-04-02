@@ -24,7 +24,6 @@ export class HUD {
     const emptyBorder = document.getElementById("emptyBorderColor");
     const emptyPattern = document.getElementById("emptyPattern");
 
-    // Store these values in canvasManager; you might add properties for empty cell styling.
     this.canvasManager.emptyCellSettings = {
       fillColor: emptyFill.value,
       borderColor: emptyBorder.value,
@@ -110,15 +109,12 @@ export class HUD {
       instrSettings.appendChild(document.createElement("br"));
       const imageListContainer = document.createElement("div");
       imageListContainer.id = "gridImageList";
-      // If you have stored images, iterate and create thumbnail buttons.
+      // If you have stored images, iterate and create thumbnail buttons
       if (this.canvasManager.gridImageList && this.canvasManager.gridImageList.length) {
         this.canvasManager.gridImageList.forEach((imgSrc, idx) => {
           const thumb = document.createElement("img");
           thumb.src = imgSrc;
-          thumb.style.width = "40px";
-          thumb.style.height = "40px";
-          thumb.style.margin = "2px";
-          thumb.style.border = "1px solid #ccc";
+          thumb.classList.add("image-thumbnail");
           thumb.addEventListener("click", () => {
             let img = new Image();
             img.src = imgSrc;
@@ -143,7 +139,7 @@ export class HUD {
       instrSettings.appendChild(borderColorInput);
       instrSettings.appendChild(document.createElement("br"));
 
-      // Image upload for grid cell pattern.
+      // Image upload for grid cell pattern
       const cellImageLabel = document.createElement("label");
       cellImageLabel.textContent = "Cell Pattern Image: ";
       const cellImageInput = document.createElement("input");
@@ -158,12 +154,12 @@ export class HUD {
           img.onload = () => {
             this.canvasManager.gridDrawSettings.image = img;
             this.canvasManager.gridDrawSettings.type = "image";
-            // Add to image list array.
+            // Add to image list array
             if (!this.canvasManager.gridImageList) {
               this.canvasManager.gridImageList = [];
             }
             this.canvasManager.gridImageList.push(img.src);
-            // Refresh the image list display.
+            // Refresh the image list display
             this.loadInstrumentSettings("gridDraw");
           };
           img.src = event.target.result;
@@ -173,7 +169,7 @@ export class HUD {
       instrSettings.appendChild(cellImageLabel);
       instrSettings.appendChild(cellImageInput);
       instrSettings.appendChild(document.createElement("br"));
-      // Button to return to non-image (color) grid drawing.
+      // Button to return to non-image (color) grid drawing
       const switchBtn = document.createElement("button");
       switchBtn.textContent = "Switch to Color Mode";
       switchBtn.addEventListener("click", () => {
@@ -222,7 +218,7 @@ export class HUD {
       sizeLabel.textContent = "Pattern Size (cells): ";
       const sizeInput = document.createElement("input");
       sizeInput.type = "number";
-      sizeInput.step = "0.1"; // allow float values
+      sizeInput.step = "0.1";
       sizeInput.value = this.canvasManager.freeDrawSettings.size;
       sizeInput.addEventListener("input", (e) => {
         this.canvasManager.freeDrawSettings.size = parseFloat(e.target.value);

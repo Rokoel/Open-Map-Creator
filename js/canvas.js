@@ -1,3 +1,5 @@
+import { constants } from "./constants.js";
+
 export class CanvasManager {
   constructor(canvas) {
     this.canvas = canvas;
@@ -9,7 +11,7 @@ export class CanvasManager {
     this.scale = 1;
 
     // Logical cell size (modifiable via HUD).
-    this.baseCellSize = 32;
+    this.baseCellSize = constants.baseCellSize;
     this.currentCellSize = this.baseCellSize;
 
     // Flags.
@@ -29,34 +31,33 @@ export class CanvasManager {
     });
     this.activeLayerIndex = 0;
 
-    // FreeDraw objects and custom objects.
+    // FreeDraw objects and custom objects
     this.freeDrawObjects = new Map();
     this.customObjects = new Map();
 
-    // To support freeDraw period.
+    // To support freeDraw period
     this.lastFreeDrawPosition = null;
 
     this.emptyCellSettings = {
-      fillColor: "#ffffff",   // white
-      borderColor: "#e0e0e0", // light gray
-      pattern: null           // no pattern by default
+      fillColor: constants.defaultEmptyCellFillColor,
+      borderColor: constants.defaultEmptyCellBorderColor,
+      pattern: null, // no pattern by default
     };
 
-    // Default settings for instruments.
     this.freeDrawSettings = {
-      period: 0, // 0 means continuous drawing.
-      size: 1, // Now allows float values; HUD input will have step=0.1.
-      fillColor: "#000000",
-      strokeColor: "#000000",
-      connectSVG: false,
-      image: null, // Optional image pattern.
+      period: 0, // 0 means continuous drawing
+      size: 1,
+      fillColor: constants.defaultFreeFillColor,
+      strokeColor: constants.defaultFreeBorderColor,
+      connectSVG: true,
+      image: null, // Optional image pattern
     };
 
     this.gridDrawSettings = {
       type: "color", // can be "color" or "image"
-      fillColor: "#a0a0a0",
-      borderColor: "#000000",
-      image: null, // If an image is uploaded for a cell pattern.
+      fillColor: constants.defaultGridDrawFillColor,
+      borderColor: constants.defaultGridDrawBorderColor,
+      image: null, // Optional image pattern
     };
 
     // For the addObject tool.
@@ -69,6 +70,11 @@ export class CanvasManager {
       custom: [],
     };
 
+    this.history = [];
+    this.historyIndex = -1;
+    this.copiedSelection = null;
+    this.saveHistory();
+
     this.smoothTransition = true;
 
     this.resizeCanvas();
@@ -77,25 +83,156 @@ export class CanvasManager {
     this.render();
   }
 
-  // New method to update the cell size.
+  saveHistory() {
+    // Create a minimal serializable copy of the map's state.
+    // (Replacing image objects with their src if available.)
+    const state = {
+      layers: this.layers.map(layer => ({
+        name: layer.name,
+        objects: Array.from(layer.objects.entries()).map(([key, cell]) => {
+          let cellCopy = { ...cell };
+          if (cellCopy.type === "image" && cellCopy.image && cellCopy.image.src) {
+            cellCopy.image = cellCopy.image.src;
+          }
+          return [key, cellCopy];
+        })
+      })),
+      freeDrawObjects: Array.from(this.freeDrawObjects.entries()).map(([id, obj]) => {
+        let copyObj = { ...obj };
+        if (copyObj.image && copyObj.image.src) {
+          copyObj.image = copyObj.image.src;
+        }
+        return [id, copyObj];
+      }),
+      customObjects: Array.from(this.customObjects.entries()).map(([id, obj]) => {
+        let copyObj = { ...obj };
+        if (copyObj.image && copyObj.image.src) {
+          copyObj.image = copyObj.image.src;
+        }
+        return [id, copyObj];
+      }),
+      settings: {
+        currentCellSize: this.currentCellSize,
+        offsetX: this.offsetX,
+        offsetY: this.offsetY,
+        scale: this.scale,
+        activeLayerIndex: this.activeLayerIndex,
+        emptyCellSettings: this.emptyCellSettings
+      }
+    };
+    // If history pointer isn’t at the end, truncate the redo branch.
+    this.history = this.history.slice(0, this.historyIndex + 1);
+    this.history.push(state);
+    this.historyIndex++;
+  }
+  
+  undo() {
+    if (this.historyIndex > 0) {
+      this.historyIndex--;
+      this.loadHistoryState(this.history[this.historyIndex]);
+    }
+  }
+  
+  redo() {
+    if (this.historyIndex < this.history.length - 1) {
+      this.historyIndex++;
+      this.loadHistoryState(this.history[this.historyIndex]);
+    }
+  }
+  
+  // Restore state from saved history
+  loadHistoryState(state) {
+    this.layers = state.layers.map(layerData => {
+      let newLayer = {
+        name: layerData.name,
+        objects: new Map(layerData.objects.map(([key, cell]) => {
+          if (cell.type === "image" && cell.image) {
+            let img = new Image();
+            img.src = cell.image;
+            cell.image = img;
+          }
+          return [key, cell];
+        }))
+      };
+      return newLayer;
+    });
+
+    this.freeDrawObjects = new Map(state.freeDrawObjects.map(([id, obj]) => {
+      if (obj.image) {
+        let img = new Image();
+        img.src = obj.image;
+        obj.image = img;
+      }
+      return [id, obj];
+    }));
+
+    this.customObjects = new Map(state.customObjects.map(([id, obj]) => {
+      if (obj.image) {
+        let img = new Image();
+        img.src = obj.image;
+        obj.image = img;
+      }
+      return [id, obj];
+    }));
+  
+
+    this.currentCellSize = state.settings.currentCellSize;
+    this.offsetX = state.settings.offsetX;
+    this.offsetY = state.settings.offsetY;
+    this.scale = state.settings.scale;
+    this.activeLayerIndex = state.settings.activeLayerIndex;
+    this.emptyCellSettings = state.settings.emptyCellSettings;
+    this.render();
+  }
+
   updateCellSize(newSize) {
     this.currentCellSize = newSize;
     this.render();
   }
 
-  // Clear the entire canvas (all layers, freeDraw and custom objects, and selection).
+  // Clear the entire canvas
   clearCanvas() {
     this.layers.forEach((layer) => layer.objects.clear());
     this.freeDrawObjects.clear();
     this.customObjects.clear();
     this.selectedObjects = { grid: [], free: [], custom: [] };
+
     this.render();
   }
 
   resizeCanvas() {
     this.canvas.width = window.innerWidth;
     this.canvas.height = window.innerHeight;
+
     this.render();
+  }
+
+  getSelectableObjectAt(worldPos) {
+    // Search freeDraw objects
+    for (let [id, obj] of this.freeDrawObjects) {
+      let dx = obj.x - worldPos.x;
+      let dy = obj.y - worldPos.y;
+      if (Math.sqrt(dx * dx + dy * dy) < obj.size / 2) {
+        return { type: "free", id };
+      }
+    }
+    // Search custom objects
+    for (let [id, obj] of this.customObjects) {
+      if (worldPos.x >= obj.x - obj.width/2 &&
+          worldPos.x <= obj.x + obj.width/2 &&
+          worldPos.y >= obj.y - obj.height/2 &&
+          worldPos.y <= obj.y + obj.height/2) {
+        return { type: "custom", id };
+      }
+    }
+    // Check grid cells (active layer)
+    const cellX = Math.floor(worldPos.x / this.currentCellSize);
+    const cellY = Math.floor(worldPos.y / this.currentCellSize);
+    const cellId = `${cellX}_${cellY}`;
+    if (this.layers[this.activeLayerIndex].objects.has(cellId)) {
+      return { type: "grid", id: cellId };
+    }
+    return null;
   }
 
   setupEventListeners() {
@@ -184,16 +321,20 @@ export class CanvasManager {
         this.canvas.style.cursor = "default";
       }
       if (event.button === 0) {
+        event.preventDefault();
         if (this.isDrawing) {
           this.isDrawing = false;
           this.lastFreeDrawPosition = null;
+          this.saveHistory();
         }
         if (this.isSelecting) {
           this.isSelecting = false;
           this.finalizeSelection();
+          this.saveHistory();
         }
         if (this.isMovingSelection) {
           this.isMovingSelection = false;
+          this.saveHistory();
         }
       }
     });
@@ -358,6 +499,7 @@ export class CanvasManager {
     this.selectionStart = null;
     this.selectionEnd = null;
     this.render();
+    this.saveHistory();
   }
   
   resizeSelection(scaleFactor) {
@@ -401,6 +543,7 @@ export class CanvasManager {
     this.selectionStart = null;
     this.selectionEnd = null;
     this.render();
+    this.saveHistory();
   }
   
   deleteSelection() {
@@ -419,6 +562,7 @@ export class CanvasManager {
     this.selectionStart = null;
     this.selectionEnd = null;
     this.render();
+    this.saveHistory();
   }
   
 
@@ -465,7 +609,6 @@ export class CanvasManager {
     const startY = Math.floor(topLeft.y / this.currentCellSize) - 1;
     const endX = Math.ceil(bottomRight.x / this.currentCellSize) + 1;
     const endY = Math.ceil(bottomRight.y / this.currentCellSize) + 1;
-    this.ctx.strokeStyle = "#e0e0e0";
     this.ctx.lineWidth = 1 / this.scale;
     for (let i = startX; i < endX; i++) {
       for (let j = startY; j < endY; j++) {
@@ -505,7 +648,7 @@ export class CanvasManager {
   }
 
   drawAll(ctx) {
-    // 1. Retrieve the logical bounding box.
+    // Retrieve the logical bounding box
     const bbox = this.getLogicalBoundingBox();
     // Define grid range (in logical cell coordinates)
     const startX = Math.floor(bbox.minX);
@@ -513,15 +656,15 @@ export class CanvasManager {
     const endX = Math.ceil(bbox.maxX);
     const endY = Math.ceil(bbox.maxY);
   
-    // 2. Determine empty cell appearance.
-    const emptyFill = (this.emptyCellSettings && this.emptyCellSettings.fillColor) || "#ffffff";
-    const emptyBorder = (this.emptyCellSettings && this.emptyCellSettings.borderColor) || "#e0e0e0";
+    // Determine empty cell appearance
+    const emptyFill = (this.emptyCellSettings && this.emptyCellSettings.fillColor) || constants.defaultEmptyCellFillColor;
+    const emptyBorder = (this.emptyCellSettings && this.emptyCellSettings.borderColor) || constants.defaultEmptyCellBorderColor;
     
-    // 3. Pre-fill the entire export area with the empty fill color.
+    // Pre-fill the entire export area with the empty fill color
     ctx.fillStyle = emptyFill;
     ctx.fillRect(startX, startY, endX - startX, endY - startY);
     
-    // 4. Draw grid lines over the entire area using the empty border color.
+    // Draw grid lines over the entire area using the empty border color
     ctx.strokeStyle = emptyBorder;
     ctx.lineWidth = 0.05; // Adjust line width as needed.
     for (let x = startX; x <= endX; x++) {
@@ -537,8 +680,8 @@ export class CanvasManager {
       ctx.stroke();
     }
     
-    // 5. Draw grid-drawn cells (for all layers if desired, or active layer only).
-    // Here we draw every grid cell that contains content—overwriting the empty appearance.
+    // Draw grid-drawn cells
+    // Here we draw every grid cell that contains content, overwriting the empty appearance
     this.layers.forEach((layer) => {
       layer.objects.forEach((cell) => {
         // Use cell.x and cell.y as logical coordinates.
@@ -548,7 +691,7 @@ export class CanvasManager {
           ctx.fillStyle = cell.fillColor;
           ctx.fillRect(x, y, 1, 1);
         } else if (cell.type === "image" && cell.image) {
-          // If the cell contains an image (for instance, an SVG or PNG), draw it scaled to 1x1 cell.
+          // If the cell contains an image, draw it scaled to 1x1 cell
           ctx.drawImage(cell.image, x, y, 1, 1);
         }
         ctx.strokeStyle = cell.borderColor;
@@ -556,7 +699,7 @@ export class CanvasManager {
       });
     });
     
-    // 6. Draw free-drawn objects.
+    // Draw free-drawn objects
     this.freeDrawObjects.forEach((obj) => {
       // Convert on-screen pixel coordinates to logical units:
       const lx = obj.x / this.currentCellSize;
@@ -574,7 +717,7 @@ export class CanvasManager {
       }
     });
     
-    // 7. Draw custom objects.
+    // Draw custom objects
     this.customObjects.forEach((obj) => {
       const lx = obj.x / this.currentCellSize;
       const ly = obj.y / this.currentCellSize;
@@ -586,7 +729,7 @@ export class CanvasManager {
       if (obj.image) {
         ctx.drawImage(obj.image, -lwidth / 2, -lheight / 2, lwidth, lheight);
       } else {
-        ctx.fillStyle = "#ff0000";
+        ctx.fillStyle = constants.attentionColor;
         ctx.fillRect(-lwidth/2, -lheight/2, lwidth, lheight);
       }
       ctx.restore();
@@ -612,7 +755,6 @@ export class CanvasManager {
         this.currentCellSize,
         this.currentCellSize
       );
-      // (If the image is an SVG, you could (in future) manipulate its fill/stroke.)
     }
     this.ctx.strokeStyle = cell.borderColor;
     this.ctx.strokeRect(x, y, this.currentCellSize, this.currentCellSize);
@@ -650,7 +792,7 @@ export class CanvasManager {
         obj.height
       );
     } else {
-      this.ctx.fillStyle = "#ff0000";
+      this.ctx.fillStyle = constants.attentionColor;
       this.ctx.fillRect(-obj.width / 2, -obj.height / 2, obj.width, obj.height);
     }
     this.ctx.restore();
@@ -664,7 +806,7 @@ export class CanvasManager {
     const width = Math.abs(end.x - start.x);
     const height = Math.abs(end.y - start.y);
     this.ctx.save();
-    this.ctx.strokeStyle = "#0000ff";
+    this.ctx.strokeStyle = constants.selectionRectColor;
     this.ctx.lineWidth = 2 / this.scale;
     this.ctx.setLineDash([5 / this.scale, 3 / this.scale]);
     this.ctx.strokeRect(x, y, width, height);
@@ -673,7 +815,7 @@ export class CanvasManager {
 
   drawSelectionHighlights() {
     this.ctx.save();
-    this.ctx.strokeStyle = "#ff0000";
+    this.ctx.strokeStyle = constants.attentionColor;
     this.ctx.lineWidth = 2 / this.scale;
     this.selectedObjects.grid.forEach((cellId) => {
       const parts = cellId.split("_");
@@ -705,14 +847,14 @@ export class CanvasManager {
     this.ctx.restore();
   }
 
-  // Computes the tightest bounding box containing all drawn content.
+  // Computes the smallest bounding box containing all drawn content
   getLogicalBoundingBox() {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   
-    // Grid cells – they’re already defined in logical units.
+    // Grid cells are already defined in logical units
     this.layers.forEach((layer) => {
       layer.objects.forEach((cell) => {
-        // Assume cell.x and cell.y are grid indices.
+        // Assume cell.x and cell.y are grid indices
         minX = Math.min(minX, cell.x);
         minY = Math.min(minY, cell.y);
         maxX = Math.max(maxX, cell.x + 1);
@@ -720,7 +862,7 @@ export class CanvasManager {
       });
     });
   
-    // FreeDraw objects – convert canvas coordinates to logical units.
+    // Convert canvas coordinates to logical units
     this.freeDrawObjects.forEach((obj) => {
       const lx = obj.x / this.currentCellSize;
       const ly = obj.y / this.currentCellSize;
@@ -731,7 +873,6 @@ export class CanvasManager {
       maxY = Math.max(maxY, ly);
     });
   
-    // Custom objects.
     this.customObjects.forEach((obj) => {
       const lx = obj.x / this.currentCellSize;
       const ly = obj.y / this.currentCellSize;
@@ -743,7 +884,7 @@ export class CanvasManager {
       maxY = Math.max(maxY, ly + lh);
     });
   
-    // If nothing was drawn, return a small default area.
+    // If nothing was drawn, return a small default area
     if (minX === Infinity) {
       minX = 0; minY = 0; maxX = 10; maxY = 10;
     }
@@ -783,6 +924,8 @@ export class CanvasManager {
         activeLayerIndex: this.activeLayerIndex,
         emptyCellSettings: this.emptyCellSettings,
       },
+      history: this.history,
+      historyIndex: this.historyIndex,
     };
   }
 
@@ -794,7 +937,7 @@ export class CanvasManager {
           name: layerData.name,
           objects: new Map(layerData.objects),
         };
-        // Recreate Image objects for grid cells.
+        // Recreate Image objects for grid cells
         newLayer.objects.forEach((cell, key) => {
           if (cell.type === "image" && cell.image && typeof cell.image === "string") {
             let img = new Image();
@@ -831,13 +974,17 @@ export class CanvasManager {
       this.activeLayerIndex = data.settings.activeLayerIndex || 0;
       if (data.settings.emptyCellSettings) {
         this.emptyCellSettings = data.settings.emptyCellSettings;
-        // Optionally, if the pattern is a string, recreate an image.
+        // Optionally, if the pattern is a string, recreate an image
         if (this.emptyCellSettings.pattern && typeof this.emptyCellSettings.pattern === "string") {
           let img = new Image();
           img.src = this.emptyCellSettings.pattern;
           this.emptyCellSettings.pattern = img;
         }
       }
+    }
+    if (data.history) {
+      this.history = data.history;
+      this.historyIndex = data.history.index || 0;
     }
     this.render();
   }

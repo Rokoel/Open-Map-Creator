@@ -1,3 +1,5 @@
+import { constants } from "./constants.js";
+
 export class StorageManager {
   constructor(canvasManager) {
     this.canvasManager = canvasManager;
@@ -10,7 +12,7 @@ export class StorageManager {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "mapData.json";
+    a.download = constants.mapBackupFileName;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -56,7 +58,7 @@ export class StorageManager {
   exportPDF() {
     const { jsPDF } = window.jspdf;
     
-    // --- Prompt for export settings ---
+    // Prompt for export settings
     let pageOrientation = prompt("Enter page orientation (portrait or landscape):", "landscape");
     pageOrientation = (pageOrientation && pageOrientation.toLowerCase() === "portrait")
       ? "portrait" : "landscape";
@@ -68,68 +70,61 @@ export class StorageManager {
     let cellSizeCm = parseFloat(prompt("Enter desired cell size in centimeters:", "1"));
     if (!cellSizeCm || cellSizeCm <= 0) cellSizeCm = 1;
     
-    // --- Compute exported cell size (in pixels) ---
-    // One logical cell, regardless of the current on‐screen cell size, will be rendered as:
-    // desiredPxPerCell = (cellSizeCm / 2.54) * dpi
-    const desiredPxPerCell = (cellSizeCm / 2.54) * dpi;
-    // In export, our logical coordinate system is independent of the on–screen cell pixel size.
-    // So we let our export-scale (in px per logical cell) be exactly desiredPxPerCell.
-    const exportScale = desiredPxPerCell; // px per cell
+    // Compute exported cell size (in pixels)
+    // One logical cell, regardless of the current on‐screen cell size, will be rendered as
+    const exportScale = (cellSizeCm / 2.54) * dpi; // in px per cell
+    // In export, our logical coordinate system is independent of the on-screen cell pixel size
     
-    // --- Determine PDF page dimensions (in pixels), based on page size, orientation, and DPI ---
-    // Define page dimensions in mm for A4 and A3.
-    const pageSizesMM = {
-      A4: { width: 210, height: 297 },
-      A3: { width: 297, height: 420 }
-    };
+    // Determine PDF page dimensions (in pixels), based on page size, orientation, and DPI
+    // Define page dimensions in mm for A4 and A3
+    const pageSizesMM = constants.pageSizesMM;
     let pageSizeMM = pageSizesMM[pageSizeInput];
-    // If orientation is landscape, swap width and height.
+    // If orientation is landscape, swap width and height
     if (pageOrientation === "landscape") {
       const temp = pageSizeMM.width;
       pageSizeMM.width = pageSizeMM.height;
       pageSizeMM.height = temp;
     }
-    // Compute conversion: 1 mm = dpi / 25.4 pixels.
+    // Compute conversion: 1 mm = dpi / 25.4 pixels
     const pxPerMm = dpi / 25.4;
     const pageWidth = pageSizeMM.width * pxPerMm;
     const pageHeight = pageSizeMM.height * pxPerMm;
     
-    // --- Determine exportable area from logical bounding box ---
-    // Assumption: getLogicalBoundingBox() returns an object {minX, minY, maxX, maxY} in logical units.
+    // Determine exportable area from logical bounding box
     const bbox = this.canvasManager.getLogicalBoundingBox();
     const logicalWidth = bbox.maxX - bbox.minX;
     const logicalHeight = bbox.maxY - bbox.minY;
     
-    // The final exported image dimensions in pixels.
+    // The final exported image dimensions in pixels
     const exportWidth = logicalWidth * exportScale;
     const exportHeight = logicalHeight * exportScale;
     
-    // --- Create an offscreen canvas and re-render the entire scene ---
+    // Create an offscreen canvas and re-render the entire scene
     const offCanvas = document.createElement("canvas");
     offCanvas.width = exportWidth;
     offCanvas.height = exportHeight;
     const offCtx = offCanvas.getContext("2d");
     
     offCtx.save();
-    // Set the transformation so that 1 logical unit corresponds to exportScale pixels.
+    // Set the transformation so that 1 logical unit corresponds to exportScale pixels
     offCtx.translate(-bbox.minX * exportScale, -bbox.minY * exportScale);
     offCtx.scale(exportScale, exportScale);
-    // Draw the whole scene using logical coordinates.
+    // Draw the whole scene using logical coordinates
     this.canvasManager.drawAll(offCtx);
     offCtx.restore();
     
-    // --- Create the jsPDF document (using unit "px") with computed page dimensions ---
+    // Create the jsPDF document (using unit "px") with computed page dimensions
     const pdf = new jsPDF({
       orientation: pageOrientation,
       unit: "px",
       format: [pageWidth, pageHeight]
     });
     
-    // --- Tile the offscreen canvas into pages ---
+    // Tile the offscreen canvas into pages
     const pagesX = Math.ceil(exportWidth / pageWidth);
     const pagesY = Math.ceil(exportHeight / pageHeight);
     
-    // Save total pages for assembly diagram.
+    // Save total pages for assembly diagram
     const totalPages = pagesX * pagesY;
     
     for (let py = 0; py < pagesY; py++) {
@@ -138,13 +133,13 @@ export class StorageManager {
         const tileWidth = Math.min(pageWidth, exportWidth - px * pageWidth);
         const tileHeight = Math.min(pageHeight, exportHeight - py * pageHeight);
         
-        // Create a tile canvas (in pixels).
+        // Create a tile canvas (in pixels)
         const tileCanvas = document.createElement("canvas");
         tileCanvas.width = tileWidth;
         tileCanvas.height = tileHeight;
         const tileCtx = tileCanvas.getContext("2d");
         
-        // Draw the corresponding region from the offscreen canvas.
+        // Draw the corresponding region from the offscreen canvas
         tileCtx.drawImage(
           offCanvas,
           px * pageWidth,
@@ -159,7 +154,7 @@ export class StorageManager {
         
         const tileImgData = tileCanvas.toDataURL("image/png");
         if (px === 0 && py === 0) {
-          // First page already exists.
+          // First page already exists
           pdf.addImage(tileImgData, "PNG", 0, 0, tileWidth, tileHeight);
         } else {
           pdf.addPage();
@@ -167,6 +162,6 @@ export class StorageManager {
         }
       }
     }
-    pdf.save("map.pdf");
+    pdf.save(constants.mapPDFFileName);
   }
 }
