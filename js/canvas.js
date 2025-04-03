@@ -11,108 +11,99 @@ export class CanvasManager {
     this.scale = 1;
 
     // Logical cell size (modifiable via HUD).
-    this.baseCellSize = constants.baseCellSize; // Keep base if needed
-    this.currentCellSize = constants.baseCellSize; // Initial value
+    this.baseCellSize = constants.baseCellSize;
+    this.currentCellSize = constants.baseCellSize;
 
     // Flags.
     this.isPanning = false;
     this.isDrawing = false;
     this.isSelecting = false;
     this.isMovingSelection = false;
-    this.selectionDragStart = null; // World coordinates
-    this.lastPanX = 0; // Screen coordinates
-    this.lastPanY = 0; // Screen coordinates
-    this.selectionStart = null; // World coordinates for selection box
-    this.selectionEnd = null; // World coordinates for selection box
+    this.selectionDragStart = null;
+    this.lastPanX = 0;
+    this.lastPanY = 0;
+    this.selectionStart = null;
+    this.selectionEnd = null;
 
-    this.activeInstrument = "gridDraw"; // Default instrument
+    this.activeInstrument = "gridDraw";
 
-    // Layers (each layer is an object with a name and a Map of cells).
+    // Layers: Each layer now includes its own shadow options
     this.layers = [];
     this.layers.push({
       name: "Layer 1",
-      objects: new Map(), // Map: cellId -> cellData {x, y, type, fillColor, borderColor, image, imageSrc}
+      objects: new Map(), // Map: cellId -> cellData
+      // NEW: Per-layer shadow options
+      gridShadowOptions: { ...constants.defaultGridShadowOptions }, // Clone defaults
+      visible: true, // Add visibility flag for future use
     });
     this.activeLayerIndex = 0;
 
-    // FreeDraw objects and custom objects
-    this.freeDrawObjects = new Map(); // Map: id -> freeDrawData {x, y, type, fillColor, strokeColor, size, image}
-    this.customObjects = new Map(); // Map: id -> customObjData {x, y, width, height, rotation, image, imageSrc}
+    // FreeDraw objects and custom objects (remain global for now)
+    this.freeDrawObjects = new Map();
+    this.customObjects = new Map();
 
     // To support freeDraw period
-    this.lastFreeDrawPosition = null; // World coordinates
+    this.lastFreeDrawPosition = null;
 
-    // --- Settings ---
+    // --- Global Settings (that don't belong to layers) ---
     this.emptyCellSettings = {
       fillColor: constants.defaultEmptyCellFillColor,
       borderColor: constants.defaultEmptyCellBorderColor,
-      pattern: null, // Image object
-      patternSrc: null, // Store src for serialization
+      pattern: null,
+      patternSrc: null,
     };
 
-    this.gridShadowOptions = {
-      enabled: false,
-      angle: 45, // degrees
-      offset: 0.5, // in cells
-      color: "#00000080", // semi-transparent black
-    };
-
+    // Grid Border Options (remains global for now, could be per-layer later if needed)
     this.gridBorderOptions = {
       enabled: false,
-      image: null, // The Image object
-      imageSrc: null, // Store src for serialization
-      // Add thickness/scale later if needed
+      image: null,
+      imageSrc: null,
     };
 
     this.freeDrawSettings = {
-      period: 0, // 0 means continuous drawing
-      size: 1, // in cells
+      period: 0,
+      size: 1,
       fillColor: constants.defaultFreeFillColor,
       strokeColor: constants.defaultFreeBorderColor,
-      connectSVG: true, // Placeholder for future SVG handling
-      image: null, // Optional Image object pattern
+      connectSVG: true,
+      image: null,
     };
 
     this.gridDrawSettings = {
-      type: "color", // can be "color" or "image"
+      type: "color",
       fillColor: constants.defaultGridDrawFillColor,
       borderColor: constants.defaultGridDrawBorderColor,
-      image: null, // Optional Image object pattern
-      imageSrc: null, // Store src for serialization
+      image: null,
+      imageSrc: null,
     };
-    this.gridImageList = []; // Stores image sources (src strings) for grid patterns
+    this.gridImageList = [];
 
-    // For the addObject tool.
-    this.customObjectImage = null; // Current Image object to add
-    this.customObjectImageSrc = null; // Store src for serialization/preview
+    this.customObjectImage = null;
+    this.customObjectImageSrc = null;
 
-    // For selection tool: store selected object IDs.
-    this.selectedObjects = {
-      grid: [], // Array of cellIds (e.g., "10_5")
-      free: [], // Array of freeDrawObject IDs
-      custom: [], // Array of customObject IDs
-    };
+    this.selectedObjects = { grid: [], free: [], custom: [] };
 
-    // History
     this.history = [];
     this.historyIndex = -1;
-    this.copiedSelection = null; // Stores { grid: [...], free: [...], custom: [...] } containing *data copies*
+    this.copiedSelection = null;
 
-    this.smoothTransition = true; // Placeholder for potential future use
-
-    this.resizeCanvas(); // Initial size
+    this.resizeCanvas();
     window.addEventListener("resize", () => this.resizeCanvas());
     this.setupEventListeners();
-    this.saveHistory(); // Save initial state
+    this.saveHistory();
     this.render();
-  }
+}
 
   // --- History Management ---
   saveHistory() {
-    // Create a minimal serializable copy of the map's state.
     const state = {
       layers: this.layers.map((layer) => ({
         name: layer.name,
+        visible: layer.visible !== undefined ? layer.visible : true, // Save visibility
+        // NEW: Save per-layer shadow options
+        gridShadowOptions: layer.gridShadowOptions
+          ? { ...layer.gridShadowOptions } // Deep copy options
+          : { ...constants.defaultGridShadowOptions }, // Fallback if missing
         objects: Array.from(layer.objects.entries()).map(([key, cell]) => {
           let cellCopy = { ...cell };
           // Use stored imageSrc if available
@@ -155,12 +146,10 @@ export class CanvasManager {
         offsetY: this.offsetY,
         scale: this.scale,
         activeLayerIndex: this.activeLayerIndex,
-        // Ensure empty cell pattern src is saved
         emptyCellSettings: {
           ...this.emptyCellSettings,
           pattern: this.emptyCellSettings.patternSrc, // Save src
         },
-        gridShadowOptions: this.gridShadowOptions,
         gridBorderOptions: {
           ...this.gridBorderOptions,
           image: this.gridBorderOptions.imageSrc, // Save src
@@ -174,7 +163,6 @@ export class CanvasManager {
           ...this.freeDrawSettings,
           image: this.freeDrawSettings.image?.src || null, // Save src if exists
         },
-        // Save current addObject image src
         customObjectImageSrc: this.customObjectImageSrc,
       },
     };
@@ -190,14 +178,21 @@ export class CanvasManager {
     }
   }
 
+
   // Restore state from saved history or loaded data (expects parsed object)
   loadStateData(state) {
     // --- Layers ---
     this.layers = state.layers.map((layerData) => {
       let newLayer = {
-        name: layerData.name,
+        name: layerData.name || "Unnamed Layer",
+        visible: layerData.visible !== undefined ? layerData.visible : true,
+        // NEW: Load per-layer shadow options, providing defaults if missing
+        gridShadowOptions: {
+            ...constants.defaultGridShadowOptions, // Start with defaults
+            ...(layerData.gridShadowOptions || {}) // Override with loaded data if present
+        },
         objects: new Map(
-          layerData.objects.map(([key, cell]) => {
+          (layerData.objects || []).map(([key, cell]) => {
             // Recreate Image objects from src
             if (cell.type === "image" && cell.image && typeof cell.image === "string") {
               let img = new Image();
@@ -216,8 +211,16 @@ export class CanvasManager {
       };
       return newLayer;
     });
+    // Ensure at least one layer exists
+    if (this.layers.length === 0) {
+        this.layers.push({
+            name: "Layer 1", objects: new Map(), visible: true,
+            gridShadowOptions: { ...constants.defaultGridShadowOptions }
+        });
+    }
 
-    // --- Free Draw Objects ---
+
+    // --- Load rest of state (freeDraw, customObjects, settings) ---
     this.freeDrawObjects = new Map(
       (state.freeDrawObjects || []).map(([id, obj]) => {
         if (obj.image && typeof obj.image === "string") {
@@ -231,8 +234,6 @@ export class CanvasManager {
         return [id, obj];
       })
     );
-
-    // --- Custom Objects ---
     this.customObjects = new Map(
       (state.customObjects || []).map(([id, obj]) => {
         if (obj.image && typeof obj.image === "string") {
@@ -249,7 +250,6 @@ export class CanvasManager {
       })
     );
 
-    // --- Settings ---
     if (state.settings) {
         this.currentCellSize = state.settings.currentCellSize || constants.baseCellSize;
         this.offsetX = state.settings.offsetX || 0;
@@ -261,7 +261,7 @@ export class CanvasManager {
             this.activeLayerIndex = 0;
         }
 
-        // Empty Cell Settings (handle pattern image)
+        // Empty Cell Settings
         this.emptyCellSettings = state.settings.emptyCellSettings || this.emptyCellSettings;
         if (this.emptyCellSettings.pattern && typeof this.emptyCellSettings.pattern === "string") {
           let img = new Image();
@@ -274,8 +274,7 @@ export class CanvasManager {
           this.emptyCellSettings.patternSrc = null;
         }
 
-        // Load Appearance Options
-        this.gridShadowOptions = state.settings.gridShadowOptions || this.gridShadowOptions;
+        // Grid Border Options
         this.gridBorderOptions = state.settings.gridBorderOptions || this.gridBorderOptions;
         if (this.gridBorderOptions.image && typeof this.gridBorderOptions.image === "string") {
           let img = new Image();
@@ -288,7 +287,7 @@ export class CanvasManager {
           this.gridBorderOptions.imageSrc = null;
         }
 
-        // Load Grid Draw Image List & Settings
+        // Grid Draw Image List & Settings
         this.gridImageList = state.settings.gridImageList || [];
         this.gridDrawSettings = state.settings.gridDrawSettings || this.gridDrawSettings;
         if (this.gridDrawSettings.image && typeof this.gridDrawSettings.image === "string") {
@@ -302,7 +301,7 @@ export class CanvasManager {
             this.gridDrawSettings.imageSrc = null;
         }
 
-        // Load Free Draw Settings Image
+        // Free Draw Settings Image
         this.freeDrawSettings = state.settings.freeDrawSettings || this.freeDrawSettings;
         if (this.freeDrawSettings.image && typeof this.freeDrawSettings.image === "string") {
             let img = new Image();
@@ -313,7 +312,7 @@ export class CanvasManager {
             this.freeDrawSettings.image = null;
         }
 
-        // Load addObject image
+        // Add Object Image
         this.customObjectImageSrc = state.settings.customObjectImageSrc || null;
         if (this.customObjectImageSrc) {
             let img = new Image();
@@ -325,7 +324,7 @@ export class CanvasManager {
         }
     }
 
-    // Clear selection after loading
+    // --- Clear selection ---
     this.selectedObjects = { grid: [], free: [], custom: [] };
     this.selectionStart = null;
     this.selectionEnd = null;
@@ -1086,23 +1085,32 @@ export class CanvasManager {
         maxY: (this.canvas.height - this.offsetY) / this.scale,
     };
 
-    // Draw the base grid (empty cells) - pass bounds for potential optimization
+    // Draw the base grid (empty cells) - considers all layers for emptiness
     this.drawGrid(ctx, this.currentCellSize, viewBounds);
 
-    // Draw Grid Shadows (if enabled)
-    if (this.gridShadowOptions.enabled) {
-      this.drawGridShadows(ctx, this.currentCellSize, viewBounds);
-    }
-
-    // Draw Grid Borders (if enabled)
-    if (this.gridBorderOptions.enabled && this.gridBorderOptions.image) {
-      this.drawGridBorders(ctx, this.currentCellSize, viewBounds);
-    }
-
-    // Draw grid cells for all layers (only visible ones)
+    // --- Draw Layer Content (Cells, Shadows, Borders) ---
     this.layers.forEach((layer, index) => {
-      // TODO: Add layer visibility toggle
-      layer.objects.forEach((cell) => {
+      // Check layer visibility
+      if (!layer.visible) return; // Skip rendering if layer is not visible
+
+      const layerObjects = layer.objects;
+      const layerShadowOptions = layer.gridShadowOptions;
+
+      // --- Draw Shadows for THIS layer (if enabled) ---
+      if (layerShadowOptions && layerShadowOptions.enabled && layerObjects.size > 0) {
+        // Pass the specific layer's objects and options
+        this.drawGridShadows(ctx, this.currentCellSize, viewBounds, layerObjects, layerShadowOptions);
+      }
+
+      // --- Draw Borders (if enabled - still global for now) ---
+      // If borders become per-layer, move this check inside the loop too
+      if (this.gridBorderOptions.enabled && this.gridBorderOptions.image) {
+         // Pass the specific layer's objects to check against
+         this.drawGridBorders(ctx, this.currentCellSize, viewBounds, layerObjects);
+      }
+
+      // --- Draw Grid Cells for THIS layer ---
+      layerObjects.forEach((cell) => {
         // Basic culling check
         const cellMaxX = (cell.x + 1) * this.currentCellSize;
         const cellMaxY = (cell.y + 1) * this.currentCellSize;
@@ -1112,9 +1120,10 @@ export class CanvasManager {
             this.drawGridCell(cell);
         }
       });
-    });
+    }); // End layer loop
 
-    // Draw freeDraw objects (only visible ones)
+    // --- Draw Global Objects (Free Draw, Custom) ---
+    // These are drawn *after* all layers
     this.freeDrawObjects.forEach((obj) => {
         const objBounds = { minX: obj.x - obj.size/2, minY: obj.y - obj.size/2, maxX: obj.x + obj.size/2, maxY: obj.y + obj.size/2 };
         if (objBounds.maxX > viewBounds.minX && objBounds.minX < viewBounds.maxX &&
@@ -1123,8 +1132,6 @@ export class CanvasManager {
             this.drawFreeDrawObject(obj);
         }
     });
-
-    // Draw custom objects (only visible ones)
     this.customObjects.forEach((obj) => {
         // AABB check for culling (ignoring rotation for simplicity)
         const objBounds = { minX: obj.x - obj.width/2, minY: obj.y - obj.height/2, maxX: obj.x + obj.width/2, maxY: obj.y + obj.height/2 };
@@ -1135,26 +1142,23 @@ export class CanvasManager {
          }
     });
 
-    // Draw selection rectangle if actively selecting
+    // --- Draw Selection ---
     if (this.isSelecting && this.selectionStart && this.selectionEnd) {
       this.drawSelectionRect();
     }
-    // Draw highlights for selected objects
-    this.drawSelectionHighlights();
+    this.drawSelectionHighlights(); // Highlights based on global selection state
 
     ctx.restore();
   }
 
   // Draw the background grid and empty cells
   drawGrid(ctx, cellSize, viewBounds) {
-    // Calculate grid boundaries based on view
     const startX = Math.floor(viewBounds.minX / cellSize) - 1;
     const startY = Math.floor(viewBounds.minY / cellSize) - 1;
     const endX = Math.ceil(viewBounds.maxX / cellSize) + 1;
     const endY = Math.ceil(viewBounds.maxY / cellSize) + 1;
 
     ctx.lineWidth = Math.max(0.5, 1 / this.scale); // Ensure minimum visibility
-
     const emptyFill = this.emptyCellSettings.fillColor;
     const emptyBorder = this.emptyCellSettings.borderColor;
     const emptyPattern = this.emptyCellSettings.pattern;
@@ -1165,8 +1169,8 @@ export class CanvasManager {
     for (let i = startX; i < endX; i++) {
       for (let j = startY; j < endY; j++) {
         const cellId = this._cellId(i, j);
-        // Check if *any* layer has this cell filled
-        const isFilled = this.layers.some((layer) => layer.objects.has(cellId));
+        // Check if *any* VISIBLE layer has this cell filled
+        const isFilled = this.layers.some((layer) => layer.visible && layer.objects.has(cellId));
 
         if (!isFilled) {
           const x = i * cellSize;
@@ -1189,20 +1193,21 @@ export class CanvasManager {
     }
   }
 
-  drawGridShadows(ctx, cellSize, viewBounds) {
-    const activeLayer = this.layers[this.activeLayerIndex];
-    if (!this.gridShadowOptions.enabled || !activeLayer || !activeLayer.objects) return;
+  drawGridShadows(ctx, cellSize, viewBounds, layerObjects, shadowOptions) {
+    // This function now operates on the passed 'layerObjects' and 'shadowOptions'
+    // instead of 'this.layers[this.activeLayerIndex].objects' and 'this.gridShadowOptions'
 
-    const filledCells = activeLayer.objects;
-    if (filledCells.size === 0) return;
+    if (!shadowOptions || !shadowOptions.enabled || !layerObjects || layerObjects.size === 0) {
+        return; // Exit if shadows disabled for this layer or layer is empty
+    }
 
-    const angleRad = (this.gridShadowOptions.angle * Math.PI) / 180;
-    const offsetPixels = this.gridShadowOptions.offset * cellSize;
-    const baseShadowColor = this.gridShadowOptions.color.substring(0, 7);
-    const shadowAlpha = parseInt(this.gridShadowOptions.color.substring(7, 9) || '80', 16) / 255;
+    const angleRad = (shadowOptions.angle * Math.PI) / 180;
+    const offsetPixels = shadowOptions.offset * cellSize;
+    const baseShadowColor = shadowOptions.color.substring(0, 7); // Get #RRGGBB
+    const shadowAlpha = parseInt(shadowOptions.color.substring(7, 9) || '80', 16) / 255; // Get alpha (default 0.5 if missing)
 
     const vo = { x: Math.cos(angleRad) * offsetPixels, y: Math.sin(angleRad) * offsetPixels };
-    if (Math.abs(vo.x) < 1e-6 && Math.abs(vo.y) < 1e-6) return;
+    if (Math.abs(vo.x) < 1e-6 && Math.abs(vo.y) < 1e-6) return; // No offset, no shadow
 
     // --- Create Temporary Offscreen Canvas for Shadows ---
     // Calculate pixel dimensions of the view
@@ -1217,7 +1222,7 @@ export class CanvasManager {
 
     if (!shadowCtx) {
         console.error("Failed to create shadow buffer context");
-        return;
+        return; // Cannot proceed without buffer
     }
 
     // --- Prepare Shadow Context Transform ---
@@ -1235,48 +1240,62 @@ export class CanvasManager {
     const endYIdx = Math.ceil(viewBounds.maxY / cellSize) + 1;
 
     // --- Draw Shadow Fragments to Offscreen Buffer ---
-    // (This part uses the same logic as before - iterating filled cells, checking neighbors,
-    // defining polygons, clipping to neighbor cell, and filling on shadowCtx)
-    filledCells.forEach((cell) => {
+    // Use the passed 'layerObjects' map here
+    layerObjects.forEach((cell) => {
+        // Cull check for the cell itself (using indices)
         if (cell.x < startXIdx || cell.x > endXIdx || cell.y < startYIdx || cell.y > endYIdx) return;
+
         const cx = cell.x; const cy = cell.y;
         const x1 = cx * cellSize; const y1 = cy * cellSize;
         const x2 = x1 + cellSize; const y2 = y1 + cellSize;
+
+        // Corners and offset corners (same calculation as before)
         const TL = { x: x1, y: y1 }; const TR = { x: x2, y: y1 };
         const BR = { x: x2, y: y2 }; const BL = { x: x1, y: y2 };
         const TL_off = { x: TL.x + vo.x, y: TL.y + vo.y }; const TR_off = { x: TR.x + vo.x, y: TR.y + vo.y };
         const BR_off = { x: BR.x + vo.x, y: BR.y + vo.y }; const BL_off = { x: BL.x + vo.x, y: BL.y + vo.y };
 
+        // Check 8 neighbors
         for (let dy = -1; dy <= 1; dy++) {
             for (let dx = -1; dx <= 1; dx++) {
-                if (dx === 0 && dy === 0) continue;
+                if (dx === 0 && dy === 0) continue; // Skip self
                 const nx = cx + dx; const ny = cy + dy;
                 const neighborId = this._cellId(nx, ny);
-                if (!filledCells.has(neighborId)) {
+
+                // Check emptiness based on the *passed* layerObjects
+                if (!layerObjects.has(neighborId)) {
+                    // Cull check for the neighbor cell (using indices)
                     if (nx < startXIdx || nx > endXIdx || ny < startYIdx || ny > endYIdx) continue;
+
                     const shadowDir = { x: dx, y: dy };
                     const dotProduct = shadowDir.x * vo.x + shadowDir.y * vo.y;
-                    if (dotProduct > 1e-6) {
+
+                    if (dotProduct > 1e-6) { // Cast shadow?
                         let shadowPolygon = [];
-                        if (dx === 0 && dy === -1) shadowPolygon = [TL, TR, TR_off, TL_off];
-                        else if (dx === 1 && dy === 0) shadowPolygon = [TR, BR, BR_off, TR_off];
-                        else if (dx === 0 && dy === 1) shadowPolygon = [BR, BL, BL_off, BR_off];
-                        else if (dx === -1 && dy === 0) shadowPolygon = [BL, TL, TL_off, BL_off];
-                        else if (dx === 1 && dy === -1) shadowPolygon = [TR, { x: TR_off.x, y: TR.y }, TR_off, { x: TR.x, y: TR_off.y }];
-                        else if (dx === 1 && dy === 1) shadowPolygon = [BR, { x: BR_off.x, y: BR.y }, BR_off, { x: BR.x, y: BR_off.y }];
-                        else if (dx === -1 && dy === 1) shadowPolygon = [BL, { x: BL_off.x, y: BL.y }, BL_off, { x: BL.x, y: BL_off.y }];
-                        else if (dx === -1 && dy === -1) shadowPolygon = [TL, { x: TL_off.x, y: TL.y }, TL_off, { x: TL.x, y: TL_off.y }];
+                        // Define polygon based on neighbor position (dx, dy)
+                        if (dx === 0 && dy === -1) shadowPolygon = [TL, TR, TR_off, TL_off];         // Top
+                        else if (dx === 1 && dy === 0) shadowPolygon = [TR, BR, BR_off, TR_off];      // Right
+                        else if (dx === 0 && dy === 1) shadowPolygon = [BR, BL, BL_off, BR_off];      // Bottom
+                        else if (dx === -1 && dy === 0) shadowPolygon = [BL, TL, TL_off, BL_off];     // Left
+                        else if (dx === 1 && dy === -1) shadowPolygon = [TR, { x: TR_off.x, y: TR.y }, TR_off, { x: TR.x, y: TR_off.y }]; // Top-Right
+                        else if (dx === 1 && dy === 1) shadowPolygon = [BR, { x: BR_off.x, y: BR.y }, BR_off, { x: BR.x, y: BR_off.y }]; // Bottom-Right
+                        else if (dx === -1 && dy === 1) shadowPolygon = [BL, { x: BL_off.x, y: BL.y }, BL_off, { x: BL.x, y: BL_off.y }]; // Bottom-Left
+                        else if (dx === -1 && dy === -1) shadowPolygon = [TL, { x: TL_off.x, y: TL.y }, TL_off, { x: TL.x, y: TL_off.y }]; // Top-Left
 
                         if (shadowPolygon.length > 0) {
+                            // Draw fragment onto the SHADOW context (already transformed)
+                            // Clipping is still needed to contain fragment within neighbor cell
                             shadowCtx.save();
                             shadowCtx.beginPath();
                             // Clip using world coordinates on the shadow context
                             shadowCtx.rect(nx * cellSize, ny * cellSize, cellSize, cellSize);
                             shadowCtx.clip();
+
                             shadowCtx.beginPath();
                             shadowPolygon.forEach((p, i) => { if (i === 0) shadowCtx.moveTo(p.x, p.y); else shadowCtx.lineTo(p.x, p.y); });
                             shadowCtx.closePath();
-                            shadowCtx.fill();
+                            shadowCtx.fill(); // Fill on shadow buffer
+
                             shadowCtx.restore();
                         }
                     }
@@ -1302,23 +1321,20 @@ export class CanvasManager {
     );
 
     ctx.restore(); // Restore alpha and any other saved state
-}
+  }
 
 
-// Replace the existing drawAllGridShadows method with this one:
-drawAllGridShadows(ctx, logicalCellSize) { // logicalCellSize is always 1 here
-    const activeLayer = this.layers[this.activeLayerIndex];
-    if (!this.gridShadowOptions.enabled || !activeLayer || !activeLayer.objects) return;
-    const filledCells = activeLayer.objects;
-    if (filledCells.size === 0) return;
+  drawAllGridShadows(ctx, logicalCellSize, layerObjects, shadowOptions) {
+    // Operates on passed layerObjects and shadowOptions
+    if (!shadowOptions || !shadowOptions.enabled || !layerObjects || layerObjects.size === 0) return;
 
-    const angleRad = (this.gridShadowOptions.angle * Math.PI) / 180;
-    const offsetLogical = this.gridShadowOptions.offset * logicalCellSize;
-    const baseShadowColor = this.gridShadowOptions.color.substring(0, 7);
-    const shadowAlpha = parseInt(this.gridShadowOptions.color.substring(7, 9) || '80', 16) / 255;
+    const angleRad = (shadowOptions.angle * Math.PI) / 180;
+    const offsetLogical = shadowOptions.offset * logicalCellSize;
+    const baseShadowColor = shadowOptions.color.substring(0, 7); // Get #RRGGBB
+    const shadowAlpha = parseInt(shadowOptions.color.substring(7, 9) || '80', 16) / 255; // Get alpha
 
     const vo = { x: Math.cos(angleRad) * offsetLogical, y: Math.sin(angleRad) * offsetLogical };
-    if (Math.abs(vo.x) < 1e-6 && Math.abs(vo.y) < 1e-6) return;
+    if (Math.abs(vo.x) < 1e-6 && Math.abs(vo.y) < 1e-6) return; // No offset, no shadow
 
     // --- Create Temporary Offscreen Canvas for Shadows ---
     // Match the target PDF context's canvas size
@@ -1329,7 +1345,7 @@ drawAllGridShadows(ctx, logicalCellSize) { // logicalCellSize is always 1 here
 
     if (!shadowCtx) {
         console.error("PDF Export: Failed to create shadow buffer context");
-        return;
+        return; // Cannot proceed without buffer
     }
 
     // --- Prepare Shadow Context Transform ---
@@ -1339,46 +1355,55 @@ drawAllGridShadows(ctx, logicalCellSize) { // logicalCellSize is always 1 here
     shadowCtx.fillStyle = baseShadowColor; // Opaque color
 
     // --- Draw Shadow Fragments to Offscreen Buffer (Logical Coords) ---
-    // (This part uses the same logic as before - iterating filled cells, checking neighbors,
-    // defining polygons, clipping to neighbor cell, and filling on shadowCtx using logical coords)
-     filledCells.forEach((cell) => {
+    // Use passed 'layerObjects'
+    layerObjects.forEach((cell) => {
         const cx = cell.x; const cy = cell.y;
         const x1 = cx * logicalCellSize; const y1 = cy * logicalCellSize;
         const x2 = x1 + logicalCellSize; const y2 = y1 + logicalCellSize;
+
+        // Corners and offset corners (logical)
         const TL = { x: x1, y: y1 }; const TR = { x: x2, y: y1 };
         const BR = { x: x2, y: y2 }; const BL = { x: x1, y: y2 };
         const TL_off = { x: TL.x + vo.x, y: TL.y + vo.y }; const TR_off = { x: TR.x + vo.x, y: TR.y + vo.y };
         const BR_off = { x: BR.x + vo.x, y: BR.y + vo.y }; const BL_off = { x: BL.x + vo.x, y: BL.y + vo.y };
 
+        // Check 8 neighbors
         for (let dy = -1; dy <= 1; dy++) {
             for (let dx = -1; dx <= 1; dx++) {
-                if (dx === 0 && dy === 0) continue;
+                if (dx === 0 && dy === 0) continue; // Skip self
                 const nx = cx + dx; const ny = cy + dy;
                 const neighborId = this._cellId(nx, ny);
-                if (!filledCells.has(neighborId)) {
+
+                // Check emptiness based on passed layerObjects
+                if (!layerObjects.has(neighborId)) {
                     const shadowDir = { x: dx, y: dy };
                     const dotProduct = shadowDir.x * vo.x + shadowDir.y * vo.y;
-                    if (dotProduct > 1e-6) {
+
+                    if (dotProduct > 1e-6) { // Cast shadow?
                         let shadowPolygon = [];
-                        if (dx === 0 && dy === -1) shadowPolygon = [TL, TR, TR_off, TL_off];
-                        else if (dx === 1 && dy === 0) shadowPolygon = [TR, BR, BR_off, TR_off];
-                        else if (dx === 0 && dy === 1) shadowPolygon = [BR, BL, BL_off, BR_off];
-                        else if (dx === -1 && dy === 0) shadowPolygon = [BL, TL, TL_off, BL_off];
-                        else if (dx === 1 && dy === -1) shadowPolygon = [TR, { x: TR_off.x, y: TR.y }, TR_off, { x: TR.x, y: TR_off.y }];
-                        else if (dx === 1 && dy === 1) shadowPolygon = [BR, { x: BR_off.x, y: BR.y }, BR_off, { x: BR.x, y: BR_off.y }];
-                        else if (dx === -1 && dy === 1) shadowPolygon = [BL, { x: BL_off.x, y: BL.y }, BL_off, { x: BL.x, y: BL_off.y }];
-                        else if (dx === -1 && dy === -1) shadowPolygon = [TL, { x: TL_off.x, y: TL.y }, TL_off, { x: TL.x, y: TL_off.y }];
+                        // Define polygon based on neighbor position (dx, dy)
+                        if (dx === 0 && dy === -1) shadowPolygon = [TL, TR, TR_off, TL_off];         // Top
+                        else if (dx === 1 && dy === 0) shadowPolygon = [TR, BR, BR_off, TR_off];      // Right
+                        else if (dx === 0 && dy === 1) shadowPolygon = [BR, BL, BL_off, BR_off];      // Bottom
+                        else if (dx === -1 && dy === 0) shadowPolygon = [BL, TL, TL_off, BL_off];     // Left
+                        else if (dx === 1 && dy === -1) shadowPolygon = [TR, { x: TR_off.x, y: TR.y }, TR_off, { x: TR.x, y: TR_off.y }]; // Top-Right
+                        else if (dx === 1 && dy === 1) shadowPolygon = [BR, { x: BR_off.x, y: BR.y }, BR_off, { x: BR.x, y: BR_off.y }]; // Bottom-Right
+                        else if (dx === -1 && dy === 1) shadowPolygon = [BL, { x: BL_off.x, y: BL.y }, BL_off, { x: BL.x, y: BL_off.y }]; // Bottom-Left
+                        else if (dx === -1 && dy === -1) shadowPolygon = [TL, { x: TL_off.x, y: TL.y }, TL_off, { x: TL.x, y: TL_off.y }]; // Top-Left
 
                         if (shadowPolygon.length > 0) {
+                            // Draw fragment onto the SHADOW context (already transformed)
                             shadowCtx.save();
                             shadowCtx.beginPath();
                             // Clip using logical coordinates on the shadow context
                             shadowCtx.rect(nx * logicalCellSize, ny * logicalCellSize, logicalCellSize, logicalCellSize);
                             shadowCtx.clip();
+
                             shadowCtx.beginPath();
                             shadowPolygon.forEach((p, i) => { if (i === 0) shadowCtx.moveTo(p.x, p.y); else shadowCtx.lineTo(p.x, p.y); });
                             shadowCtx.closePath();
-                            shadowCtx.fill();
+                            shadowCtx.fill(); // Fill on shadow buffer
+
                             shadowCtx.restore();
                         }
                     }
@@ -1400,35 +1425,33 @@ drawAllGridShadows(ctx, logicalCellSize) { // logicalCellSize is always 1 here
     ctx.drawImage(shadowCanvas, 0, 0); // Draw buffer at origin
     // Restore original transform AND alpha
     ctx.restore();
-}
+  }
 
 
   // Draw border patterns inside empty cells adjacent to filled cells
-  drawGridBorders(ctx, cellSize, viewBounds) {
-    const activeLayer = this.layers[this.activeLayerIndex];
+  drawGridBorders(ctx, cellSize, viewBounds, layerObjects) {
+    // This function now uses the passed 'layerObjects' to determine
+    // where borders should be drawn (adjacent to filled cells of *this* layer).
+    // The global 'this.gridBorderOptions' is still used for image and enabled status.
+
     const borderImage = this.gridBorderOptions.image;
-    if (!activeLayer || !activeLayer.objects || !borderImage || !borderImage.complete || borderImage.naturalWidth === 0) return;
+    // Check if borders are globally enabled and image exists
+    if (!this.gridBorderOptions.enabled || !borderImage || !borderImage.complete || borderImage.naturalWidth === 0) return;
+    // Check if the passed layer has objects
+    if (!layerObjects || layerObjects.size === 0) return;
 
-    const filledCells = activeLayer.objects;
-    if (filledCells.size === 0) return;
+    const borderThickness = cellSize * 0.25; // Example thickness
+    const startXIdx = Math.floor(viewBounds.minX / cellSize) - 1;
+    const startYIdx = Math.floor(viewBounds.minY / cellSize) - 1;
+    const endXIdx = Math.ceil(viewBounds.maxX / cellSize) + 1;
+    const endYIdx = Math.ceil(viewBounds.maxY / cellSize) + 1;
 
-    // Define a thickness for the border (e.g., 1/4 of cell size) - adjust as needed
-    const borderThickness = cellSize * 0.25;
-
-    // Calculate visible cell range
-    const startX = Math.floor(viewBounds.minX / cellSize) - 1;
-    const startY = Math.floor(viewBounds.minY / cellSize) - 1;
-    const endX = Math.ceil(viewBounds.maxX / cellSize) + 1;
-    const endY = Math.ceil(viewBounds.maxY / cellSize) + 1;
-
-    filledCells.forEach((cell) => {
+    // Iterate through filled cells of the *passed layer*
+    layerObjects.forEach((cell) => {
         // Cull check for the cell itself
-        if (cell.x < startX || cell.x > endX || cell.y < startY || cell.y > endY) {
-            return;
-        }
+        if (cell.x < startXIdx || cell.x > endXIdx || cell.y < startYIdx || cell.y > endYIdx) return;
 
-        const cx = cell.x;
-        const cy = cell.y;
+        const cx = cell.x; const cy = cell.y;
 
         const neighbors = [
             { dx: 0, dy: -1, edge: "top" }, { dx: 1, dy: 0, edge: "right" },
@@ -1436,21 +1459,18 @@ drawAllGridShadows(ctx, logicalCellSize) { // logicalCellSize is always 1 here
         ];
 
         neighbors.forEach((neighbor) => {
-            const nx = cx + neighbor.dx;
-            const ny = cy + neighbor.dy;
+            const nx = cx + neighbor.dx; const ny = cy + neighbor.dy;
             const neighborId = this._cellId(nx, ny);
 
-            // Check if the neighbor cell is EMPTY on the active layer
-            if (!filledCells.has(neighborId)) {
-                // Check if neighbor is within view bounds
-                const neighborX = nx * cellSize;
-                const neighborY = ny * cellSize;
-                 if (neighborX + cellSize < viewBounds.minX || neighborX > viewBounds.maxX ||
-                     neighborY + cellSize < viewBounds.minY || neighborY > viewBounds.maxY) {
-                     return; // Skip if neighbor cell is off-screen
-                 }
+            // Check if the neighbor cell is EMPTY *in this layer*
+            if (!layerObjects.has(neighborId)) {
+                // Cull check for the neighbor cell
+                if (nx < startXIdx || nx > endXIdx || ny < startYIdx || ny > endYIdx) return;
 
                 let drawX, drawY, drawW, drawH;
+                const neighborX = nx * cellSize;
+                const neighborY = ny * cellSize;
+
                 // Position the border *inside* the empty neighbor cell, along the edge
                 switch (neighbor.edge) {
                     case "top":    drawX = neighborX; drawY = neighborY + cellSize - borderThickness; drawW = cellSize; drawH = borderThickness; break;
@@ -1714,39 +1734,42 @@ drawAllGridShadows(ctx, logicalCellSize) { // logicalCellSize is always 1 here
     return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
   }
 
-  // Renders the entire map content onto a given context using logical coordinates
-  drawAll(ctx, exportScale) { // Pass exportScale for potential use if needed
-    const bbox = this.getLogicalBoundingBox();
-    if (bbox.width <= 0 || bbox.height <= 0) return; // Nothing to draw
-
+  drawPdfBackgroundAndGrid(ctx, bbox) {
     const startX = bbox.minX;
     const startY = bbox.minY;
-    const endX = bbox.maxX;
+    const endX = bbox.maxX; // Use maxX/maxY from bbox
     const endY = bbox.maxY;
+    const width = bbox.width;
+    const height = bbox.height;
 
     const emptyFill = this.emptyCellSettings.fillColor || constants.defaultEmptyCellFillColor;
     const emptyBorder = this.emptyCellSettings.borderColor || constants.defaultEmptyCellBorderColor;
     const emptyPattern = this.emptyCellSettings.pattern; // The Image object
 
-    // --- Background and Grid Lines (Logical Coordinates) ---
+    // --- Background Fill ---
     ctx.fillStyle = emptyFill;
-    ctx.fillRect(startX, startY, bbox.width, bbox.height);
+    ctx.fillRect(startX, startY, width, height);
 
-    // Draw empty pattern if present
+    // --- Background Pattern ---
     if (emptyPattern && emptyPattern.complete && emptyPattern.naturalWidth > 0) {
         ctx.save();
-        ctx.rect(startX, startY, bbox.width, bbox.height);
+        // Clip to the bounding box area before drawing pattern
+        ctx.beginPath();
+        ctx.rect(startX, startY, width, height);
         ctx.clip();
-        // Create a pattern from the image
         try {
+            // Create a pattern from the image
+            // Note: Pattern scaling might need adjustment depending on desired look vs exportScale
             const pattern = ctx.createPattern(emptyPattern, 'repeat');
             if (pattern) {
                 ctx.fillStyle = pattern;
-                // Need to translate the pattern origin to match the grid cells
-                // This assumes the pattern should align with the 0,0 logical origin
-                ctx.translate(startX, startY);
-                ctx.fillRect(0, 0, bbox.width, bbox.height);
-                ctx.translate(-startX, -startY); // Translate back
+                // Apply pattern fill. Need to ensure pattern origin aligns correctly.
+                // If pattern should align with 0,0 logical origin:
+                // ctx.translate(startX, startY);
+                // ctx.fillRect(0, 0, width, height);
+                // ctx.translate(-startX, -startY);
+                // Simpler: Fill the clipped rect directly
+                ctx.fillRect(startX, startY, width, height);
             } else {
                  console.error("PDF Export: Failed to create empty cell pattern.");
             }
@@ -1756,52 +1779,75 @@ drawAllGridShadows(ctx, logicalCellSize) { // logicalCellSize is always 1 here
         ctx.restore(); // Remove clip
     }
 
-
-    // Draw grid lines
+    // --- Grid Lines ---
     ctx.strokeStyle = emptyBorder;
-    ctx.lineWidth = 0.02; // Thin line in logical units
+    ctx.lineWidth = 0.02; // Thin line in logical units (adjust as needed)
     ctx.beginPath();
-    for (let x = Math.ceil(startX); x <= Math.floor(endX); x++) {
+    // Draw vertical lines within the bounding box
+    for (let x = Math.ceil(startX); x < endX; x++) { // Use < endX for lines between cells
       ctx.moveTo(x, startY); ctx.lineTo(x, endY);
     }
-    for (let y = Math.ceil(startY); y <= Math.floor(endY); y++) {
+    // Draw horizontal lines within the bounding box
+    for (let y = Math.ceil(startY); y < endY; y++) { // Use < endY for lines between cells
       ctx.moveTo(startX, y); ctx.lineTo(endX, y);
     }
     ctx.stroke();
+  }
 
-    // --- Shadows and Borders (Logical Coordinates) ---
-    const logicalCellSize = 1; // Use 1 for logical size
-    if (this.gridShadowOptions.enabled) {
-        this.drawAllGridShadows(ctx, logicalCellSize);
-    }
-    if (this.gridBorderOptions.enabled && this.gridBorderOptions.image) {
-        this.drawAllGridBorders(ctx, logicalCellSize);
-    }
+  // Renders the entire map content onto a given context using logical coordinates
+  drawAll(ctx, exportScale) {
+    const bbox = this.getLogicalBoundingBox();
+    if (bbox.width <= 0 || bbox.height <= 0) return; // Nothing to draw
 
-    // --- Draw Content (Logical Coordinates) ---
+    const startX = bbox.minX; const startY = bbox.minY;
+    const endX = bbox.maxX; const endY = bbox.maxY;
 
-    // Grid-drawn cells
+    // --- Background and Grid Lines (Logical Coordinates) ---
+    this.drawPdfBackgroundAndGrid(ctx, bbox); // Use helper
+
+    // --- Draw Layer Content (Cells, Shadows, Borders) ---
     this.layers.forEach((layer) => {
-      layer.objects.forEach((cell) => {
-        const x = cell.x; const y = cell.y;
-        // Basic check if cell is within bounds
-        if (x + 1 > startX && x < endX && y + 1 > startY && y < endY) {
-            if (cell.type === "color") {
-              ctx.fillStyle = cell.fillColor;
-              ctx.fillRect(x, y, 1, 1); // Logical size 1x1
-            } else if (cell.type === "image" && cell.image && cell.image.complete && cell.image.naturalWidth > 0) {
-              try {
-                ctx.drawImage(cell.image, x, y, 1, 1); // Logical size 1x1
-              } catch (e) { console.error("PDF Export: Error drawing grid cell image", e); }
-            }
-            // Draw cell border
-            ctx.strokeStyle = cell.borderColor;
-            ctx.strokeRect(x, y, 1, 1); // Logical size 1x1
-        }
-      });
-    });
+        // Check layer visibility
+        if (!layer.visible) return;
 
-    // Free-drawn objects
+        const layerObjects = layer.objects;
+        const layerShadowOptions = layer.gridShadowOptions;
+        const logicalCellSize = 1; // Use 1 for logical size
+
+        // --- Draw Shadows for THIS layer (if enabled) ---
+        if (layerShadowOptions && layerShadowOptions.enabled && layerObjects.size > 0) {
+            // Pass the specific layer's objects and options to the PDF shadow function
+            this.drawAllGridShadows(ctx, logicalCellSize, layerObjects, layerShadowOptions);
+        }
+
+        // --- Draw Borders (if enabled - still global) ---
+        // If borders become per-layer, move this check inside the loop too
+        if (this.gridBorderOptions.enabled && this.gridBorderOptions.image) {
+            // Pass the specific layer's objects to check against
+            this.drawAllGridBorders(ctx, logicalCellSize, layerObjects);
+        }
+
+        // --- Draw Grid Cells for THIS layer ---
+        layerObjects.forEach((cell) => {
+            const x = cell.x; const y = cell.y;
+            // Basic check if cell is within bounds
+            if (x + 1 > startX && x < endX && y + 1 > startY && y < endY) {
+                if (cell.type === "color") {
+                  ctx.fillStyle = cell.fillColor;
+                  ctx.fillRect(x, y, 1, 1); // Logical size 1x1
+                } else if (cell.type === "image" && cell.image && cell.image.complete && cell.image.naturalWidth > 0) {
+                  try {
+                    ctx.drawImage(cell.image, x, y, 1, 1); // Logical size 1x1
+                  } catch (e) { console.error("PDF Export: Error drawing grid cell image", e); }
+                }
+                // Draw cell border
+                ctx.strokeStyle = cell.borderColor;
+                ctx.strokeRect(x, y, 1, 1); // Logical size 1x1
+            }
+        });
+    }); // End layer loop
+
+    // --- Draw Global Objects (Free Draw, Custom) ---
     this.freeDrawObjects.forEach((obj) => {
       const lx = obj.x / this.currentCellSize; // Convert to logical
       const ly = obj.y / this.currentCellSize;
@@ -1819,8 +1865,6 @@ drawAllGridShadows(ctx, logicalCellSize) { // logicalCellSize is always 1 here
           }
       }
     });
-
-    // Custom objects
     this.customObjects.forEach((obj) => {
       const lx = obj.x / this.currentCellSize; // Convert to logical
       const ly = obj.y / this.currentCellSize;
@@ -1844,116 +1888,128 @@ drawAllGridShadows(ctx, logicalCellSize) { // logicalCellSize is always 1 here
   }
 
   // Draw borders for PDF export using logical coordinates
-  drawAllGridBorders(ctx, logicalCellSize) { // logicalCellSize is always 1
-      const activeLayer = this.layers[this.activeLayerIndex];
-      const borderImage = this.gridBorderOptions.image;
-      if (!activeLayer || !activeLayer.objects || !borderImage || !borderImage.complete || borderImage.naturalWidth === 0) return;
-      const filledCells = activeLayer.objects;
-      if (filledCells.size === 0) return;
+  drawAllGridBorders(ctx, logicalCellSize, layerObjects) {
+    // Uses passed layerObjects for emptiness check
+    const borderImage = this.gridBorderOptions.image;
+    // Check if borders are globally enabled and image exists
+    if (!this.gridBorderOptions.enabled || !borderImage || !borderImage.complete || !layerObjects || layerObjects.size === 0) return;
 
-      const borderThicknessLogical = logicalCellSize * 0.25; // Logical border thickness
+    const borderThicknessLogical = logicalCellSize * 0.25; // Logical border thickness
 
-      filledCells.forEach((cell) => {
-          const cx = cell.x; const cy = cell.y;
-          const neighbors = [ { dx: 0, dy: -1, edge: "top" }, { dx: 1, dy: 0, edge: "right" }, { dx: 0, dy: 1, edge: "bottom" }, { dx: -1, dy: 0, edge: "left" } ];
+    // Iterate through filled cells of the *passed layer*
+    layerObjects.forEach((cell) => {
+        const cx = cell.x; const cy = cell.y;
+        const neighbors = [
+            { dx: 0, dy: -1, edge: "top" }, { dx: 1, dy: 0, edge: "right" },
+            { dx: 0, dy: 1, edge: "bottom" }, { dx: -1, dy: 0, edge: "left" },
+        ];
 
-          neighbors.forEach((neighbor) => {
-              const nx = cx + neighbor.dx; const ny = cy + neighbor.dy;
-              const neighborId = this._cellId(nx, ny);
+        neighbors.forEach((neighbor) => {
+            const nx = cx + neighbor.dx; const ny = cy + neighbor.dy;
+            const neighborId = this._cellId(nx, ny);
 
-              if (!filledCells.has(neighborId)) {
-                  let drawX, drawY, drawW, drawH; // Logical coordinates
-                  switch (neighbor.edge) {
-                      case "top":    drawX = nx * logicalCellSize; drawY = (ny + 1) * logicalCellSize - borderThicknessLogical; drawW = logicalCellSize; drawH = borderThicknessLogical; break;
-                      case "right":  drawX = nx * logicalCellSize; drawY = ny * logicalCellSize; drawW = borderThicknessLogical; drawH = logicalCellSize; break;
-                      case "bottom": drawX = nx * logicalCellSize; drawY = ny * logicalCellSize; drawW = logicalCellSize; drawH = borderThicknessLogical; break;
-                      case "left":   drawX = (nx + 1) * logicalCellSize - borderThicknessLogical; drawY = ny * logicalCellSize; drawW = borderThicknessLogical; drawH = logicalCellSize; break;
-                  }
+            // Check emptiness based on passed layerObjects
+            if (!layerObjects.has(neighborId)) {
+                let drawX, drawY, drawW, drawH; // Logical coordinates
+                const neighborX = nx * logicalCellSize;
+                const neighborY = ny * logicalCellSize;
 
-                  ctx.save();
-                  try {
-                      ctx.beginPath(); ctx.rect(drawX, drawY, drawW, drawH); ctx.clip();
-                      ctx.drawImage(borderImage, drawX, drawY, drawW, drawH); // Draw image stretched
-                  } catch (e) {
-                      console.error("PDF Export: Error drawing border image:", e);
-                      ctx.fillStyle = constants.attentionColor; // Fallback
-                      ctx.fillRect(drawX, drawY, drawW, drawH);
-                  }
-                  ctx.restore();
-              }
-          });
-      });
+                // Position the border *inside* the empty neighbor cell, along the edge
+                switch (neighbor.edge) {
+                    case "top":    drawX = neighborX; drawY = neighborY + logicalCellSize - borderThicknessLogical; drawW = logicalCellSize; drawH = borderThicknessLogical; break;
+                    case "right":  drawX = neighborX; drawY = neighborY; drawW = borderThicknessLogical; drawH = logicalCellSize; break;
+                    case "bottom": drawX = neighborX; drawY = neighborY; drawW = logicalCellSize; drawH = borderThicknessLogical; break;
+                    case "left":   drawX = neighborX + logicalCellSize - borderThicknessLogical; drawY = neighborY; drawW = borderThicknessLogical; drawH = logicalCellSize; break;
+                }
+
+                ctx.save();
+                try {
+                    ctx.beginPath(); ctx.rect(drawX, drawY, drawW, drawH); ctx.clip();
+                    // Draw image stretched into the logical border area
+                    ctx.drawImage(borderImage, drawX, drawY, drawW, drawH);
+                } catch (e) {
+                    console.error("PDF Export: Error drawing border image:", e);
+                    ctx.fillStyle = constants.attentionColor; // Fallback
+                    ctx.fillRect(drawX, drawY, drawW, drawH);
+                }
+                ctx.restore();
+            }
+        });
+    });
   }
 
   // --- Data Management & Layers ---
   getMapData() {
     // Use the logic from saveHistory's state creation, but don't modify history
     const state = {
-      layers: this.layers.map((layer) => ({ /* ... see saveHistory ... */ })),
-      freeDrawObjects: Array.from(this.freeDrawObjects.entries()).map(([id, obj]) => { /* ... */ }),
-      customObjects: Array.from(this.customObjects.entries()).map(([id, obj]) => { /* ... */ }),
-      settings: { /* ... see saveHistory ... */ },
-    };
-     // Manually construct the state object like in saveHistory
-     state.layers = this.layers.map((layer) => ({
+      layers: this.layers.map((layer) => ({
         name: layer.name,
+        visible: layer.visible !== undefined ? layer.visible : true,
+        gridShadowOptions: layer.gridShadowOptions ? { ...layer.gridShadowOptions } : { ...constants.defaultGridShadowOptions },
         objects: Array.from(layer.objects.entries()).map(([key, cell]) => {
           let cellCopy = { ...cell };
           if (cellCopy.imageSrc) cellCopy.image = cellCopy.imageSrc;
           else delete cellCopy.image;
           return [key, cellCopy];
         }),
-      }));
-     state.freeDrawObjects = Array.from(this.freeDrawObjects.entries()).map(([id, obj]) => {
+      })),
+      freeDrawObjects: Array.from(this.freeDrawObjects.entries()).map(([id, obj]) => {
          let copyObj = { ...obj };
          if (copyObj.image?.src) copyObj.image = copyObj.image.src;
          else delete copyObj.image;
          return [id, copyObj];
-     });
-     state.customObjects = Array.from(this.customObjects.entries()).map(([id, obj]) => {
+     }),
+      customObjects: Array.from(this.customObjects.entries()).map(([id, obj]) => {
          let copyObj = { ...obj };
          if (copyObj.imageSrc) copyObj.image = copyObj.imageSrc;
          else delete copyObj.image;
          return [id, copyObj];
-     });
-     state.settings = {
+     }),
+      settings: {
         currentCellSize: this.currentCellSize,
         offsetX: this.offsetX,
         offsetY: this.offsetY,
         scale: this.scale,
         activeLayerIndex: this.activeLayerIndex,
         emptyCellSettings: { ...this.emptyCellSettings, pattern: this.emptyCellSettings.patternSrc },
-        gridShadowOptions: this.gridShadowOptions,
         gridBorderOptions: { ...this.gridBorderOptions, image: this.gridBorderOptions.imageSrc },
         gridImageList: this.gridImageList,
         gridDrawSettings: { ...this.gridDrawSettings, image: this.gridDrawSettings.imageSrc },
         freeDrawSettings: { ...this.freeDrawSettings, image: this.freeDrawSettings.image?.src || null },
         customObjectImageSrc: this.customObjectImageSrc,
-     };
-
+     },
+    };
     return state;
   }
 
   loadMapData(data) {
-    // Use the common loading logic
-    this.loadStateData(data);
-
-    // Reset history after loading a full map
-    this.history = [];
+    this.loadStateData(data); // Use common loading logic
+    this.history = []; // Reset history
     this.historyIndex = -1;
-    this.saveHistory(); // Save the loaded state as the first history entry
-
+    this.saveHistory(); // Save loaded state as initial history
     this.render();
-    // Crucially, update the HUD to reflect the newly loaded settings
+    // Update HUD completely
     if (window.hudInstance) {
-        window.hudInstance.updateAppearanceControls();
-        window.hudInstance.updateLayerList();
+        window.hudInstance.updateLayerList(); // Updates active layer style
+        window.hudInstance.updateAppearanceControls(); // Updates shadow controls for active layer
         // Update other relevant HUD parts
         document.getElementById('cellSize').value = this.currentCellSize;
         document.getElementById('emptyFillColor').value = this.emptyCellSettings.fillColor;
         document.getElementById('emptyBorderColor').value = this.emptyCellSettings.borderColor;
         document.getElementById('emptyPattern').value = ''; // Clear file input visually
-        window.hudInstance.loadInstrumentSettings(this.activeInstrument); // Refresh tool settings
+        // Update border controls too
+        const borderPatternPreview = document.getElementById("borderPatternPreview");
+        if (this.gridBorderOptions.imageSrc) {
+            borderPatternPreview.src = this.gridBorderOptions.imageSrc;
+            borderPatternPreview.style.display = 'block';
+        } else {
+            borderPatternPreview.src = "#";
+            borderPatternPreview.style.display = 'none';
+        }
+        document.getElementById("borderPattern").value = '';
+        document.getElementById("bordersEnabled").checked = this.gridBorderOptions.enabled;
+
+        window.hudInstance.loadInstrumentSettings(this.activeInstrument);
     } else {
         console.warn("HUD instance not found for updating after load.");
     }
@@ -1961,11 +2017,18 @@ drawAllGridShadows(ctx, logicalCellSize) { // logicalCellSize is always 1 here
 
   setActiveLayer(index) {
     if (index >= 0 && index < this.layers.length) {
-      this.activeLayerIndex = index;
-      // Clear selection when changing layers? Optional.
-      this.selectedObjects = { grid: [], free: [], custom: [] };
-      this.render();
-      // No history save needed for just changing active layer view
+      if (this.activeLayerIndex !== index) {
+          this.activeLayerIndex = index;
+          // Clear selection when changing layers? Optional, but often good UX.
+          this.selectedObjects = { grid: [], free: [], custom: [] };
+          this.selectionStart = null;
+          this.selectionEnd = null;
+          this.render();
+          // NEW: Update HUD appearance controls for the new active layer
+          if (window.hudInstance) {
+              window.hudInstance.updateAppearanceControls();
+          }
+      }
     }
   }
 
@@ -1973,10 +2036,17 @@ drawAllGridShadows(ctx, logicalCellSize) { // logicalCellSize is always 1 here
     const newLayer = {
       name: "Layer " + (this.layers.length + 1),
       objects: new Map(),
+      visible: true,
+      // NEW: Add default shadow options to new layer
+      gridShadowOptions: { ...constants.defaultGridShadowOptions }
     };
     this.layers.push(newLayer);
     this.activeLayerIndex = this.layers.length - 1; // Activate the new layer
     this.render();
+    // NEW: Update HUD appearance controls for the new active layer
+    if (window.hudInstance) {
+        window.hudInstance.updateAppearanceControls();
+    }
     this.saveHistory(); // Adding a layer is a state change
   }
 

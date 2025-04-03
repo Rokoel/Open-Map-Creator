@@ -29,6 +29,12 @@ const constants = {
         // Letter: { width: 215.9, height: 279.4 },
         // Legal: { width: 215.9, height: 355.6 }
     },
+    defaultGridShadowOptions: {
+        enabled: false,
+        angle: 45, // degrees
+        offset: 0.5, // in cells
+        color: "#00000080", // semi-transparent black
+    },
 };
 
 export {constants};

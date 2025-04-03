@@ -11,6 +11,8 @@ export class HUD {
     this.setupAppearanceSettings(); // Setup for shadows/borders
     // Make HUD instance globally accessible (simple approach)
     window.hudInstance = this;
+    // Initial update after potential autoload in main.js
+    // this.updateAppearanceControls(); // No longer needed here, called after load/init
   }
 
   setupToolbar() {
@@ -100,23 +102,27 @@ export class HUD {
     this.layerList = document.getElementById("layerList");
     document.getElementById("addLayer").addEventListener("click", () => {
       this.canvasManager.addLayer();
-      this.updateLayerList(); // Update UI
+      this.updateLayerList(); // Update UI (will also trigger appearance update via setActiveLayer)
     });
     document.getElementById("removeLayer").addEventListener("click", () => {
       if (this.canvasManager.layers.length <= 1) {
           alert("Cannot remove the last layer.");
           return;
       }
-      if (confirm(`Are you sure you want to remove layer "${this.canvasManager.layers[this.canvasManager.activeLayerIndex].name}"?`)) {
+      // Use optional chaining for safety, though activeLayerIndex should always be valid
+      const layerName = this.canvasManager.layers[this.canvasManager.activeLayerIndex]?.name || 'the selected layer';
+      if (confirm(`Are you sure you want to remove layer "${layerName}"?`)) {
           this.canvasManager.removeActiveLayer();
-          this.updateLayerList(); // Update UI
+          this.updateLayerList(); // Update UI (will also trigger appearance update via setActiveLayer)
       }
     });
-    this.updateLayerList(); // Initial population
+    // this.updateLayerList(); // Initial population called from main.js after potential load
   }
 
   updateLayerList() {
     this.layerList.innerHTML = ""; // Clear existing list
+    const currentActiveIndex = this.canvasManager.activeLayerIndex; // Cache before loop potentially changes it
+
     this.canvasManager.layers.forEach((layer, index) => {
       const li = document.createElement("li");
       // Basic editable layer name (optional)
@@ -127,19 +133,31 @@ export class HUD {
       // nameSpan.ondblclick = () => { /* Add rename logic here */ };
       li.appendChild(nameSpan);
 
-      // TODO: Add visibility toggle button
+      // TODO: Add visibility toggle button using layer.visible
       // const visibilityBtn = document.createElement('button');
-      // visibilityBtn.textContent = '👁️';
+      // visibilityBtn.textContent = layer.visible ? '👁️' : '🚫';
+      // visibilityBtn.title = layer.visible ? 'Hide Layer' : 'Show Layer';
+      // visibilityBtn.style.marginLeft = '10px';
+      // visibilityBtn.onclick = () => {
+      //     layer.visible = !layer.visible;
+      //     this.canvasManager.render();
+      //     this.canvasManager.saveHistory();
+      //     this.updateLayerList(); // Update button icon
+      // };
       // li.appendChild(visibilityBtn);
 
-      if (index === this.canvasManager.activeLayerIndex) {
+      if (index === currentActiveIndex) {
         li.classList.add("active"); // Apply active style
       }
       li.addEventListener("click", (e) => {
           // Prevent clicks on buttons inside li from activating layer
           if (e.target === nameSpan) {
-              this.canvasManager.setActiveLayer(index);
-              this.updateLayerList(); // Re-render list to show active state
+              // Check if already active to prevent unnecessary updates
+              if (this.canvasManager.activeLayerIndex !== index) {
+                  this.canvasManager.setActiveLayer(index); // This now triggers HUD appearance update
+                  // We also need to update the list highlighting immediately
+                  this.updateLayerList();
+              }
           }
       });
       this.layerList.appendChild(li);
@@ -151,44 +169,82 @@ export class HUD {
     const shadowsEnabled = document.getElementById("shadowsEnabled");
     const shadowAngle = document.getElementById("shadowAngle");
     const shadowOffset = document.getElementById("shadowOffset");
-    const shadowColor = document.getElementById("shadowColor");
+    const shadowColorInput = document.getElementById("shadowColor"); // Renamed variable for clarity
     const bordersEnabled = document.getElementById("bordersEnabled");
     const borderPatternInput = document.getElementById("borderPattern");
     const borderPatternPreview = document.getElementById("borderPatternPreview");
 
-    // Initialize controls from CanvasManager state
-    this.updateAppearanceControls();
+    // Initial population is handled by updateAppearanceControls called after constructor/load
 
-    // Event Listeners
+    // --- Event Listeners ---
     shadowsEnabled.addEventListener("change", (e) => {
-      this.canvasManager.gridShadowOptions.enabled = e.target.checked;
-      this.canvasManager.render();
-      this.canvasManager.saveHistory();
+      const activeLayer = this.canvasManager.layers[this.canvasManager.activeLayerIndex];
+      if (activeLayer && activeLayer.gridShadowOptions) {
+        activeLayer.gridShadowOptions.enabled = e.target.checked;
+        this.canvasManager.render();
+        this.canvasManager.saveHistory();
+      } else {
+          console.warn("Cannot set shadow options: No active layer or options object found.");
+      }
     });
     shadowAngle.addEventListener("input", (e) => {
-      this.canvasManager.gridShadowOptions.angle = parseInt(e.target.value, 10);
-      this.canvasManager.render();
+      const activeLayer = this.canvasManager.layers[this.canvasManager.activeLayerIndex];
+      if (activeLayer && activeLayer.gridShadowOptions) {
+        activeLayer.gridShadowOptions.angle = parseInt(e.target.value, 10);
+        this.canvasManager.render();
+      }
     });
-    shadowAngle.addEventListener("change", () => this.canvasManager.saveHistory());
+    shadowAngle.addEventListener("change", () => {
+        if (this.canvasManager.layers[this.canvasManager.activeLayerIndex]) {
+            this.canvasManager.saveHistory();
+        }
+    });
 
     shadowOffset.addEventListener("input", (e) => {
-      this.canvasManager.gridShadowOptions.offset = parseFloat(e.target.value);
-      this.canvasManager.render();
+       const activeLayer = this.canvasManager.layers[this.canvasManager.activeLayerIndex];
+       if (activeLayer && activeLayer.gridShadowOptions) {
+        activeLayer.gridShadowOptions.offset = parseFloat(e.target.value);
+        this.canvasManager.render();
+       }
     });
-    shadowOffset.addEventListener("change", () => this.canvasManager.saveHistory());
-
-    shadowColor.addEventListener("input", (e) => {
-      this.canvasManager.gridShadowOptions.color = e.target.value;
-      this.canvasManager.render();
+    shadowOffset.addEventListener("change", () => {
+        if (this.canvasManager.layers[this.canvasManager.activeLayerIndex]) {
+            this.canvasManager.saveHistory();
+        }
     });
-    shadowColor.addEventListener("change", () => this.canvasManager.saveHistory());
 
+    // CORRECTED Shadow Color Listener
+    shadowColorInput.addEventListener("input", (e) => {
+       const activeLayer = this.canvasManager.layers[this.canvasManager.activeLayerIndex];
+       if (activeLayer && activeLayer.gridShadowOptions) {
+        // Get the new RGB value from the color picker
+        const newRgbHex = e.target.value; // Format: #rrggbb
+
+        // Get the *current* alpha hex from the stored value (or default to '80')
+        let currentAlphaHex = '80'; // Default alpha (50%)
+        const currentColor = activeLayer.gridShadowOptions.color;
+        if (typeof currentColor === 'string' && currentColor.length === 9 && currentColor.startsWith('#')) {
+            currentAlphaHex = currentColor.substring(7, 9);
+        }
+
+        // Combine the new RGB with the existing Alpha
+        activeLayer.gridShadowOptions.color = newRgbHex + currentAlphaHex;
+
+        this.canvasManager.render();
+       }
+    });
+    shadowColorInput.addEventListener("change", () => { // Save history on final change
+        if (this.canvasManager.layers[this.canvasManager.activeLayerIndex]) {
+            this.canvasManager.saveHistory();
+        }
+    });
+
+    // Border controls still modify global options
     bordersEnabled.addEventListener("change", (e) => {
       this.canvasManager.gridBorderOptions.enabled = e.target.checked;
       this.canvasManager.render();
       this.canvasManager.saveHistory();
     });
-
     borderPatternInput.addEventListener("change", (e) => {
       const file = e.target.files[0];
       if (!file) {
@@ -227,23 +283,37 @@ export class HUD {
 
   // Helper to update appearance controls from CanvasManager state
   updateAppearanceControls() {
-      const cm = this.canvasManager; // Alias
-      document.getElementById("shadowsEnabled").checked = cm.gridShadowOptions.enabled;
-      document.getElementById("shadowAngle").value = cm.gridShadowOptions.angle;
-      document.getElementById("shadowOffset").value = cm.gridShadowOptions.offset;
-      document.getElementById("shadowColor").value = cm.gridShadowOptions.color;
+    const cm = this.canvasManager;
+    const activeLayer = cm.layers[cm.activeLayerIndex];
+    // Use default options as a fallback if the layer or its options don't exist
+    const shadowOptions = activeLayer?.gridShadowOptions || constants.defaultGridShadowOptions;
+    const currentShadowColor = shadowOptions.color || constants.defaultGridShadowOptions.color;
 
-      document.getElementById("bordersEnabled").checked = cm.gridBorderOptions.enabled;
-      const borderPatternPreview = document.getElementById("borderPatternPreview");
-      if (cm.gridBorderOptions.imageSrc) {
-          borderPatternPreview.src = cm.gridBorderOptions.imageSrc;
-          borderPatternPreview.style.display = 'block';
-      } else {
-          borderPatternPreview.src = "#";
-          borderPatternPreview.style.display = 'none';
-      }
-      // Clear the file input value visually
-      document.getElementById("borderPattern").value = '';
+    // Update Shadow Controls
+    document.getElementById("shadowsEnabled").checked = shadowOptions.enabled;
+    document.getElementById("shadowAngle").value = shadowOptions.angle;
+    document.getElementById("shadowOffset").value = shadowOptions.offset;
+    // Set the color picker value to the RGB part (#rrggbb)
+    if (typeof currentShadowColor === 'string' && currentShadowColor.length >= 7) {
+        document.getElementById("shadowColor").value = currentShadowColor.substring(0, 7);
+    } else {
+        // Fallback if color format is invalid
+        document.getElementById("shadowColor").value = constants.defaultGridShadowOptions.color.substring(0, 7);
+    }
+
+
+    // Update Border Controls (still global)
+    document.getElementById("bordersEnabled").checked = cm.gridBorderOptions.enabled;
+    const borderPatternPreview = document.getElementById("borderPatternPreview");
+    if (cm.gridBorderOptions.imageSrc) {
+        borderPatternPreview.src = cm.gridBorderOptions.imageSrc;
+        borderPatternPreview.style.display = 'block';
+    } else {
+        borderPatternPreview.src = "#";
+        borderPatternPreview.style.display = 'none';
+    }
+    // Clear the file input value visually (doesn't remove the file object itself)
+    document.getElementById("borderPattern").value = '';
   }
 
   // Load settings specific to the selected instrument
@@ -514,5 +584,4 @@ export class HUD {
       instrSettings.appendChild(settingsDiv);
     }
   }
-
-} // End of HUD class
+}
