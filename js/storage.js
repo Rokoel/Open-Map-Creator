@@ -6,32 +6,63 @@ export class StorageManager {
   }
 
   exportMap() {
-    const mapData = this.canvasManager.getMapData();
-    const mapJSON = JSON.stringify(mapData);
-    const blob = new Blob([mapJSON], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = constants.mapBackupFileName;
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+        const mapData = this.canvasManager.getMapData();
+        // Add versioning info
+        mapData.version = constants.saveFileVersion;
+        mapData.appName = "OpenMapCreator"; // Identify the app
+
+        const mapJSON = JSON.stringify(mapData, null, 2); // Pretty print JSON
+        const blob = new Blob([mapJSON], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        // Suggest a filename
+        const timestamp = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+        a.download = `${constants.mapBackupFileName}_${timestamp}.json`;
+        document.body.appendChild(a); // Required for Firefox
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        console.log("Map exported successfully.");
+    } catch (error) {
+        console.error("Error exporting map:", error);
+        alert("Failed to export map data. See console for details.");
+    }
   }
 
   importMap() {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = "application/json";
+    input.accept = "application/json,.json"; // Accept .json extension
     input.addEventListener("change", (event) => {
       const file = event.target.files[0];
       if (!file) return;
+
       const reader = new FileReader();
       reader.onload = (e) => {
         try {
           const data = JSON.parse(e.target.result);
-          this.canvasManager.loadMapData(data);
+          // Basic validation (optional but recommended)
+          if (!data || typeof data !== 'object' || !data.settings || !data.layers) {
+              throw new Error("Invalid map file format.");
+          }
+          // Check version if needed
+          // if (data.version !== constants.saveFileVersion) { ... warn user ... }
+
+          // Confirm overwrite
+          if (confirm("Importing will replace the current map. Continue?")) {
+              this.canvasManager.loadMapData(data);
+              console.log("Map imported successfully.");
+          }
         } catch (err) {
-          console.error("Error parsing map data", err);
+          console.error("Error parsing or loading map data:", err);
+          alert(`Failed to import map: ${err.message}`);
         }
+      };
+      reader.onerror = (e) => {
+          console.error("Error reading file:", e);
+          alert("Failed to read the selected file.");
       };
       reader.readAsText(file);
     });
@@ -39,129 +70,206 @@ export class StorageManager {
   }
 
   autoSaveMap() {
-    const mapData = this.canvasManager.getMapData();
-    localStorage.setItem("mapData", JSON.stringify(mapData));
+    try {
+        const mapData = this.canvasManager.getMapData();
+        mapData.version = constants.saveFileVersion; // Add version
+        localStorage.setItem(constants.localStorageKey, JSON.stringify(mapData));
+        // console.log("Map auto-saved."); // Optional: for debugging
+    } catch (error) {
+        console.error("Error during auto-save:", error);
+        // Avoid alerting frequently on auto-save errors
+        if (error.name === 'QuotaExceededError') {
+            console.warn("LocalStorage quota exceeded. Auto-save failed.");
+            // Consider notifying user less intrusively once
+        }
+    }
   }
 
   autoLoadMap() {
-    const saved = localStorage.getItem("mapData");
+    const saved = localStorage.getItem(constants.localStorageKey);
     if (saved) {
+      console.log("Found saved map data in localStorage.");
       try {
         const data = JSON.parse(saved);
+        // Basic validation
+        if (!data || typeof data !== 'object' || !data.settings || !data.layers) {
+            throw new Error("Invalid saved data format.");
+        }
+        // Load the data into the canvas manager
         this.canvasManager.loadMapData(data);
+        console.log("Map loaded from auto-save.");
       } catch (err) {
-        console.error("Failed to load saved map data", err);
+        console.error("Failed to load saved map data:", err);
+        // Don't alert on auto-load failure, just clear bad data
+        localStorage.removeItem(constants.localStorageKey);
       }
+    } else {
+        console.log("No saved map data found in localStorage.");
     }
   }
 
   exportPDF() {
     const { jsPDF } = window.jspdf;
-    
-    // Prompt for export settings
-    let pageOrientation = prompt("Enter page orientation (portrait or landscape):", "landscape");
-    pageOrientation = (pageOrientation && pageOrientation.toLowerCase() === "portrait")
-      ? "portrait" : "landscape";
-  
-    let pageSizeInput = prompt("Enter page size (A4 or A3):", "A4");
-    pageSizeInput = (pageSizeInput && pageSizeInput.toUpperCase() === "A3") ? "A3" : "A4";
-  
-    let dpi = parseInt(prompt("Enter printer DPI:", "300"), 10) || 300;
-    let cellSizeCm = parseFloat(prompt("Enter desired cell size in centimeters:", "1"));
-    if (!cellSizeCm || cellSizeCm <= 0) cellSizeCm = 1;
-    
-    // Compute exported cell size (in pixels)
-    // One logical cell, regardless of the current on‐screen cell size, will be rendered as
-    const exportScale = (cellSizeCm / 2.54) * dpi; // in px per cell
-    // In export, our logical coordinate system is independent of the on-screen cell pixel size
-    
-    // Determine PDF page dimensions (in pixels), based on page size, orientation, and DPI
-    // Define page dimensions in mm for A4 and A3
+    if (!jsPDF) {
+        alert("Error: jsPDF library not loaded.");
+        return;
+    }
+
+    // --- Configuration Prompts ---
+    let pageOrientation = prompt("Page orientation (portrait or landscape):", "landscape")?.toLowerCase();
+    pageOrientation = (pageOrientation === "portrait") ? "portrait" : "landscape";
+
+    let pageSizeInput = prompt("Page size (A4 or A3):", "A4")?.toUpperCase();
+    pageSizeInput = (pageSizeInput === "A3") ? "A3" : "A4";
+
+    let dpiInput = prompt("Printer DPI (e.g., 150, 300):", "150");
+    let dpi = parseInt(dpiInput, 10);
+    if (isNaN(dpi) || dpi <= 0) dpi = 150; // Default DPI
+
+    let cellSizeCmInput = prompt("Desired cell size on paper (cm):", "2.5");
+    let cellSizeCm = parseFloat(cellSizeCmInput);
+    if (isNaN(cellSizeCm) || cellSizeCm <= 0) cellSizeCm = 2.5; // Default size (approx 1 inch)
+
+    // --- Calculations ---
+    // Export scale: pixels per logical cell unit
+    const exportScale = (cellSizeCm / 2.54) * dpi; // px per logical cell
+
+    // Page dimensions in mm
     const pageSizesMM = constants.pageSizesMM;
     let pageSizeMM = pageSizesMM[pageSizeInput];
-    // If orientation is landscape, swap width and height
     if (pageOrientation === "landscape") {
-      const temp = pageSizeMM.width;
-      pageSizeMM.width = pageSizeMM.height;
-      pageSizeMM.height = temp;
+      [pageSizeMM.width, pageSizeMM.height] = [pageSizeMM.height, pageSizeMM.width]; // Swap width/height
     }
-    // Compute conversion: 1 mm = dpi / 25.4 pixels
+
+    // Page dimensions in pixels
     const pxPerMm = dpi / 25.4;
-    const pageWidth = pageSizeMM.width * pxPerMm;
-    const pageHeight = pageSizeMM.height * pxPerMm;
-    
-    // Determine exportable area from logical bounding box
+    const pageWidthPx = Math.floor(pageSizeMM.width * pxPerMm);
+    const pageHeightPx = Math.floor(pageSizeMM.height * pxPerMm);
+    if (pageWidthPx <= 0 || pageHeightPx <= 0) {
+        alert("Error: Calculated page dimensions are invalid. Check DPI and page size.");
+        return;
+    }
+
+    // Get map content bounds in logical units
     const bbox = this.canvasManager.getLogicalBoundingBox();
-    const logicalWidth = bbox.maxX - bbox.minX;
-    const logicalHeight = bbox.maxY - bbox.minY;
-    
-    // The final exported image dimensions in pixels
-    const exportWidth = logicalWidth * exportScale;
-    const exportHeight = logicalHeight * exportScale;
-    
-    // Create an offscreen canvas and re-render the entire scene
+    if (bbox.width <= 0 || bbox.height <= 0) {
+        alert("Map is empty. Nothing to export.");
+        return;
+    }
+    const logicalWidth = bbox.width;
+    const logicalHeight = bbox.height;
+
+    // Total export image dimensions in pixels
+    const exportWidthPx = Math.ceil(logicalWidth * exportScale);
+    const exportHeightPx = Math.ceil(logicalHeight * exportScale);
+    if (exportWidthPx <= 0 || exportHeightPx <= 0) {
+        alert("Error: Calculated export dimensions are invalid. Check map content and export settings.");
+        return;
+    }
+
+    console.log(`Exporting map: ${logicalWidth.toFixed(2)} x ${logicalHeight.toFixed(2)} logical units`);
+    console.log(`Export scale: ${exportScale.toFixed(2)} px/unit`);
+    console.log(`Total export size: ${exportWidthPx} x ${exportHeightPx} px`);
+    console.log(`Page size: ${pageWidthPx} x ${pageHeightPx} px (${pageSizeInput} ${pageOrientation})`);
+
+    // --- Offscreen Rendering ---
     const offCanvas = document.createElement("canvas");
-    offCanvas.width = exportWidth;
-    offCanvas.height = exportHeight;
+    offCanvas.width = exportWidthPx;
+    offCanvas.height = exportHeightPx;
     const offCtx = offCanvas.getContext("2d");
-    
+    if (!offCtx) {
+        alert("Error: Could not create offscreen canvas context.");
+        return;
+    }
+
+    // Set background for the entire offscreen canvas (optional, helps with transparency)
+    offCtx.fillStyle = '#FFFFFF'; // White background
+    offCtx.fillRect(0, 0, offCanvas.width, offCanvas.height);
+
+    // Prepare transformation for drawing using logical coordinates
     offCtx.save();
-    // Set the transformation so that 1 logical unit corresponds to exportScale pixels
-    offCtx.translate(-bbox.minX * exportScale, -bbox.minY * exportScale);
-    offCtx.scale(exportScale, exportScale);
-    // Draw the whole scene using logical coordinates
-    this.canvasManager.drawAll(offCtx);
-    offCtx.restore();
-    
-    // Create the jsPDF document (using unit "px") with computed page dimensions
+    offCtx.scale(exportScale, exportScale); // Scale up logical units to pixels
+    offCtx.translate(-bbox.minX, -bbox.minY); // Translate origin to top-left of bbox
+
+    // Draw the entire scene using logical coordinates onto the offscreen canvas
+    this.canvasManager.drawAll(offCtx, exportScale); // Pass scale if needed by drawAll
+
+    offCtx.restore(); // Restore context state
+
+    // --- PDF Generation & Tiling ---
+    console.log("Rendering complete. Generating PDF...");
     const pdf = new jsPDF({
       orientation: pageOrientation,
-      unit: "px",
-      format: [pageWidth, pageHeight]
+      unit: "px", // Use pixels for page dimensions and image placement
+      format: [pageWidthPx, pageHeightPx],
+      // hotfixes: ['px_scaling'], // May be needed for some jsPDF versions/browsers
     });
-    
-    // Tile the offscreen canvas into pages
-    const pagesX = Math.ceil(exportWidth / pageWidth);
-    const pagesY = Math.ceil(exportHeight / pageHeight);
-    
-    // Save total pages for assembly diagram
+
+    const pagesX = Math.ceil(exportWidthPx / pageWidthPx);
+    const pagesY = Math.ceil(exportHeightPx / pageHeightPx);
     const totalPages = pagesX * pagesY;
-    
+
+    console.log(`Tiling into ${pagesX} x ${pagesY} = ${totalPages} pages.`);
+
+    // Add assembly instructions page (optional)
+    // pdf.addPage();
+    // pdf.text(`Assembly Instructions: ${pagesX} columns x ${pagesY} rows`, 20, 20);
+    // ... draw grid diagram ...
+
+    // Add map pages
     for (let py = 0; py < pagesY; py++) {
       for (let px = 0; px < pagesX; px++) {
-        // Compute the tile dimensions (they may be less than a full page on the right/bottom edges)
-        const tileWidth = Math.min(pageWidth, exportWidth - px * pageWidth);
-        const tileHeight = Math.min(pageHeight, exportHeight - py * pageHeight);
-        
-        // Create a tile canvas (in pixels)
-        const tileCanvas = document.createElement("canvas");
-        tileCanvas.width = tileWidth;
-        tileCanvas.height = tileHeight;
-        const tileCtx = tileCanvas.getContext("2d");
-        
-        // Draw the corresponding region from the offscreen canvas
-        tileCtx.drawImage(
-          offCanvas,
-          px * pageWidth,
-          py * pageHeight,
-          tileWidth,
-          tileHeight,
-          0,
-          0,
-          tileWidth,
-          tileHeight
-        );
-        
-        const tileImgData = tileCanvas.toDataURL("image/png");
-        if (px === 0 && py === 0) {
-          // First page already exists
-          pdf.addImage(tileImgData, "PNG", 0, 0, tileWidth, tileHeight);
-        } else {
-          pdf.addPage();
-          pdf.addImage(tileImgData, "PNG", 0, 0, tileWidth, tileHeight);
+        const pageNum = py * pagesX + px + 1;
+        console.log(`Adding page ${pageNum}/${totalPages}...`);
+
+        // Calculate source region on the offscreen canvas
+        const sx = px * pageWidthPx;
+        const sy = py * pageHeightPx;
+        const sWidth = Math.min(pageWidthPx, exportWidthPx - sx);
+        const sHeight = Math.min(pageHeightPx, exportHeightPx - sy);
+
+        if (sWidth <= 0 || sHeight <= 0) continue; // Skip if tile has no dimensions
+
+        try {
+            // Create a temporary canvas for the tile to get Data URL
+            // This avoids potential issues with drawImage directly from large offscreen canvas in jsPDF
+            const tileCanvas = document.createElement('canvas');
+            tileCanvas.width = sWidth;
+            tileCanvas.height = sHeight;
+            const tileCtx = tileCanvas.getContext('2d');
+            tileCtx.drawImage(offCanvas, sx, sy, sWidth, sHeight, 0, 0, sWidth, sHeight);
+            const tileImgData = tileCanvas.toDataURL("image/png"); // Use PNG for lossless
+
+            if (px > 0 || py > 0) {
+              pdf.addPage([pageWidthPx, pageHeightPx], pageOrientation);
+            }
+            // Add image to PDF page at top-left (0,0) with its actual dimensions
+            pdf.addImage(tileImgData, "PNG", 0, 0, sWidth, sHeight, undefined, 'FAST'); // Use 'FAST' compression
+
+            // Add page number/coordinates (optional)
+            pdf.setFontSize(8);
+            pdf.setTextColor(150);
+            pdf.text(`Page ${pageNum} (${px + 1},${py + 1})`, 5, pageHeightPx - 5);
+
+        } catch (tileError) {
+            console.error(`Error processing tile for page ${pageNum}:`, tileError);
+            alert(`Error creating PDF page ${pageNum}. The export might be incomplete.`);
+            // Optionally add a blank page or error message in the PDF
+            if (px > 0 || py > 0) pdf.addPage();
+            pdf.setTextColor(255, 0, 0);
+            pdf.text(`Error rendering page ${pageNum}`, 20, 20);
         }
       }
     }
-    pdf.save(constants.mapPDFFileName);
+
+    // --- Save PDF ---
+    try {
+        const timestamp = new Date().toISOString().slice(0, 10);
+        pdf.save(`${constants.mapPDFFileName}_${timestamp}.pdf`);
+        console.log("PDF saved successfully.");
+    } catch (saveError) {
+        console.error("Error saving PDF:", saveError);
+        alert("Failed to save the PDF file. See console for details.");
+    }
   }
-}
+} // End of StorageManager class
