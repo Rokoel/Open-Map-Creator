@@ -7,12 +7,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const canvasEl = document.getElementById("mapCanvas");
   const canvasManager = new CanvasManager(canvasEl);
   const storageManager = new StorageManager(canvasManager);
-
-  // Attempt to load saved map data first
-  storageManager.autoLoadMap(); // This now calls loadMapData which updates HUD
-
-  // Initialize HUD *after* potential autoload
   const hud = new HUD(canvasManager, storageManager);
+  storageManager.autoLoadMap();
   // Ensure HUD reflects the state (either default or loaded)
   hud.updateLayerList();
   hud.updateAppearanceControls();
@@ -49,18 +45,30 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("restart").addEventListener("click", () => {
     if (
       confirm(
-        "Restarting will completely clear all data (layers, objects, and saved progress). Continue?"
+        "Restarting will completely clear all data (layers, objects, settings, and saved progress). Continue?"
       )
     ) {
-      localStorage.removeItem(constants.localStorageKey); // Use constant
-      // Reset canvas state completely
-      canvasManager.clearCanvas(); // Clear objects
-      canvasManager.layers = [{ name: "Layer 1", objects: new Map() }]; // Reset layers
+      // 1. Clear Local Storage
+      localStorage.removeItem(constants.localStorageKey);
+
+      // 2. Reset Canvas Manager State
+      canvasManager.clearCanvas(); // Clear objects from current layers
+
+      // Reset Layers
+      canvasManager.layers = [{
+          name: "Layer 1",
+          objects: new Map(),
+          visible: true,
+          gridShadowOptions: { ...constants.defaultGridShadowOptions } // Reset shadow options too
+      }];
       canvasManager.activeLayerIndex = 0;
-      canvasManager.offsetX = 0; // Reset view
+
+      // Reset View
+      canvasManager.offsetX = 0;
       canvasManager.offsetY = 0;
       canvasManager.scale = 1;
-      // Reset settings to default
+
+      // Reset Core Settings
       canvasManager.currentCellSize = constants.baseCellSize;
       canvasManager.emptyCellSettings = {
         fillColor: constants.defaultEmptyCellFillColor,
@@ -68,37 +76,74 @@ document.addEventListener("DOMContentLoaded", () => {
         pattern: null,
         patternSrc: null,
       };
-      canvasManager.gridShadowOptions = {
-        enabled: false,
-        angle: 45,
-        offset: 0.5,
-        color: "#00000080",
-      };
+      // Reset Global Border Options
       canvasManager.gridBorderOptions = {
         enabled: false,
         image: null,
         imageSrc: null,
       };
-      // Reset other settings if necessary (freeDraw, gridDraw etc.)
 
-      // Reset history
+      // --- NEW: Reset Instrument-Specific Settings ---
+      // Reset Grid Draw Settings
+      canvasManager.gridDrawSettings = {
+        type: "color", // Default type
+        fillColor: constants.defaultGridDrawFillColor,
+        borderColor: constants.defaultGridDrawBorderColor,
+        image: null,
+        imageSrc: null,
+      };
+      canvasManager.gridImageList = []; // Clear uploaded grid patterns
+
+      // Reset Free Draw Settings
+      canvasManager.freeDrawSettings = {
+        period: 0,
+        size: 1,
+        fillColor: constants.defaultFreeFillColor,
+        strokeColor: constants.defaultFreeBorderColor,
+        connectSVG: true,
+        image: null,
+      };
+
+      // Reset Add Object Tool Image
+      canvasManager.customObjectImage = null;
+      canvasManager.customObjectImageSrc = null;
+
+      // Reset Active Instrument (optional, could default to gridDraw or select)
+      // canvasManager.setActiveInstrument('gridDraw'); // Already default, but explicit if needed
+
+      // --- End NEW ---
+
+      // Reset History & Selection
       canvasManager.history = [];
       canvasManager.historyIndex = -1;
       canvasManager.copiedSelection = null;
+      canvasManager.selectedObjects = { grid: [], free: [], custom: [] };
+      canvasManager.selectionStart = null;
+      canvasManager.selectionEnd = null;
       canvasManager.saveHistory(); // Save the initial empty state
 
-      // Update HUD
-      hud.updateLayerList();
-      hud.updateAppearanceControls();
-      // Update other HUD elements like cell size slider, empty cell colors etc.
-      document.getElementById("cellSize").value = constants.baseCellSize;
-      document.getElementById("emptyFillColor").value = constants.defaultEmptyCellFillColor;
-      document.getElementById("emptyBorderColor").value = constants.defaultEmptyCellBorderColor;
-      document.getElementById("emptyPattern").value = ''; // Clear file input
+      // 3. Update HUD to Reflect Defaults
+      if (window.hudInstance) { // Use global HUD instance
+          // Update layer list
+          window.hudInstance.updateLayerList();
+          // Update appearance controls (shadows, borders)
+          window.hudInstance.updateAppearanceControls();
+          // Update canvas settings controls
+          document.getElementById("cellSize").value = canvasManager.currentCellSize;
+          // Update empty cell controls
+          document.getElementById("emptyFillColor").value = canvasManager.emptyCellSettings.fillColor;
+          document.getElementById("emptyBorderColor").value = canvasManager.emptyCellSettings.borderColor;
+          document.getElementById("emptyPattern").value = ''; // Clear file input
+          // Reload instrument settings panel for the current (likely default) tool
+          window.hudInstance.loadInstrumentSettings(canvasManager.activeInstrument);
+      }
 
-      canvasManager.render(); // Re-render the cleared state
+      // 4. Re-render the cleared canvas
+      canvasManager.render();
+
+      console.log("Application restarted to default state.");
     }
-  });
+});
 
   // --- Keyboard Shortcuts ---
   document.addEventListener("keydown", (e) => {

@@ -1,10 +1,10 @@
 const constants = {
     defaultEmptyCellFillColor: "#ffffff",
     defaultEmptyCellBorderColor: "#e0e0e0",
-    defaultGridDrawFillColor: "#cccccc",
+    defaultGridDrawFillColor: "#000000",
     defaultGridDrawBorderColor: "#aaaaaa",
-    defaultFreeFillColor: "#add8e6", // Light blue
-    defaultFreeBorderColor: "#0000ff", // Blue
+    defaultFreeFillColor: "#000000", // Light blue
+    defaultFreeBorderColor: "#000000", // Blue
     attentionColor: "#ffcc00", // Yellowish for placeholders/warnings
     errorColor: "#ff00ff", // Magenta for errors
     selectionRectColor: "#0000ff", // Blue dashed line

@@ -100,7 +100,6 @@ export class CanvasManager {
       layers: this.layers.map((layer) => ({
         name: layer.name,
         visible: layer.visible !== undefined ? layer.visible : true, // Save visibility
-        // NEW: Save per-layer shadow options
         gridShadowOptions: layer.gridShadowOptions
           ? { ...layer.gridShadowOptions } // Deep copy options
           : { ...constants.defaultGridShadowOptions }, // Fallback if missing
@@ -780,21 +779,11 @@ export class CanvasManager {
     // Reset selection rectangle drawing points
     this.selectionStart = null;
     this.selectionEnd = null;
+    window.hudInstance.loadInstrumentSettings(this.activeInstrument);
   }
 
   moveSelection(dxWorld, dyWorld) {
     const activeLayerObjects = this.layers[this.activeLayerIndex]?.objects;
-
-    // Move Grid Cells (more complex - needs to delete old, create new)
-    // This is tricky because grid cells are tied to the grid. Moving them
-    // might mean changing their x/y indices. For now, let's disallow moving grid cells.
-    // If needed later, it would involve:
-    // 1. Storing the original data of selected cells.
-    // 2. Deleting the selected cells.
-    // 3. Calculating new cellX, cellY based on dxWorld, dyWorld.
-    // 4. Creating new cells at the new locations with the stored data.
-    // This can lead to overwriting or conflicts. A simpler approach might be
-    // to only allow moving free/custom objects.
 
     // Move Free Draw Objects
     this.selectedObjects.free.forEach((id) => {
@@ -813,6 +802,8 @@ export class CanvasManager {
         obj.y += dyWorld;
       }
     });
+
+    window.hudInstance.loadInstrumentSettings(this.activeInstrument);
   }
 
   // Calculate the center of the current selection
@@ -892,6 +883,7 @@ export class CanvasManager {
     // Note: Rotating grid cells is generally not practical.
 
     this.render();
+    window.hudInstance.loadInstrumentSettings(this.activeInstrument);
     this.saveHistory();
   }
 
@@ -924,6 +916,7 @@ export class CanvasManager {
     // Note: Resizing grid cells is not practical.
 
     this.render();
+    window.hudInstance.loadInstrumentSettings(this.activeInstrument);
     this.saveHistory();
   }
 
@@ -954,6 +947,7 @@ export class CanvasManager {
 
     if (changed) {
         this.render();
+        window.hudInstance.loadInstrumentSettings(this.activeInstrument);
         this.saveHistory();
     }
   }
@@ -991,6 +985,7 @@ export class CanvasManager {
           }
       });
       console.log("Copied:", this.copiedSelection);
+      window.hudInstance.loadInstrumentSettings(this.activeInstrument);
   }
 
   pasteSelection() {
@@ -1058,6 +1053,7 @@ export class CanvasManager {
       });
 
       this.render();
+      window.hudInstance.loadInstrumentSettings(this.activeInstrument);
       this.saveHistory();
   }
 

@@ -8,6 +8,9 @@
     />
     <title>TTRPG Map Creator</title>
     <link rel="stylesheet" href="css/styles.css" />
+    <link rel="icon" type="image/png" href="/favicons/favicon-96x96.png" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="/favicons/favicon.svg" />
+    <link rel="shortcut icon" href="/favicon.ico"/>
     <!-- Basic styling for thumbnails and active layer -->
     <style>
       .image-thumbnail {
@@ -111,9 +114,9 @@
       <div id="emptyCellSettings">
         <h3>Empty Cell Appearance</h3>
         <label for="emptyFillColor">Fill Color: </label>
-        <input id="emptyFillColor" type="color" value="#ffffff" /><br />
+        <input id="emptyFillColor" type="color"/><br />
         <label for="emptyBorderColor">Border Color: </label>
-        <input id="emptyBorderColor" type="color" value="#e0e0e0" /><br />
+        <input id="emptyBorderColor" type="color"/><br />
         <label for="emptyPattern">Pattern Image: </label>
         <input id="emptyPattern" type="file" accept="image/*" />
       </div>
@@ -126,8 +129,13 @@
         <h4>Grid Shadows</h4>
         <label for="shadowsEnabled">Enable Shadows: </label>
         <input type="checkbox" id="shadowsEnabled" /><br />
-        <label for="shadowAngle">Angle (0-360): </label>
-        <input type="range" id="shadowAngle" min="0" max="360" value="45" /><br />
+
+        <!-- Angle Controls -->
+        <label for="shadowAngle">Angle:</label>
+        <input type="range" id="shadowAngle" min="0" max="360" value="45" style="vertical-align: middle;"/>
+        <input type="number" id="shadowAngleNumber" min="0" max="360" value="45" style="width: 50px; vertical-align: middle;"/><br/>
+
+        <!-- Offset Control (Unchanged) -->
         <label for="shadowOffset">Offset (cells): </label>
         <input
           type="number"
@@ -137,11 +145,17 @@
           step="0.1"
           value="0.5"
         /><br />
-        <label for="shadowColor">Color: </label>
-        <input type="color" id="shadowColor" value="#00000080" /><br />
 
-        <!-- Grid Borders -->
+        <!-- NEW Color + Alpha Controls -->
+        <label for="shadowColorRGB">Color (RGB): </label>
+        <input type="color" id="shadowColorRGB" value="#000000" /><br/>
+        <label for="shadowAlpha">Opacity:</label>
+        <input type="range" id="shadowAlpha" min="0" max="1" step="0.01" value="0.5" style="vertical-align: middle;"/>
+        <span id="shadowAlphaValue" style="vertical-align: middle; font-size: 0.9em;">0.50</span><br/>
+
+        <!-- Grid Borders (Unchanged) -->
         <h4>Grid Borders</h4>
+        <!-- ... border controls remain the same ... -->
         <label for="bordersEnabled">Enable Borders: </label>
         <input type="checkbox" id="bordersEnabled" /><br />
         <label for="borderPattern">Border Pattern: </label>

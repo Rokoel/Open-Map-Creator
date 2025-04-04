@@ -96,7 +96,9 @@ export class StorageManager {
             throw new Error("Invalid saved data format.");
         }
         // Load the data into the canvas manager
-        this.canvasManager.loadMapData(data);
+        if (window.hudInstance) {
+          this.canvasManager.loadMapData(data);
+        }
         console.log("Map loaded from auto-save.");
       } catch (err) {
         console.error("Failed to load saved map data:", err);
