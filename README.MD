@@ -6,6 +6,8 @@
 
 ![Grid with text "Open Map Creator"](./OMC.png)
 
+## Try it [here](https://rokoel.github.io/Open-Map-Creator/)!
+
 ---
 
 ## What we focus on
