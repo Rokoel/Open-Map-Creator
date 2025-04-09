@@ -90,6 +90,10 @@ Contributions are what make the open-source community such an amazing place to l
 
 Please read our `CONTRIBUTING.MD` file for more detailed guidelines.
 
+## 📑 Documentation
+
+You can view project's documentation in the `DOCUMENTATION.MD` file. Contributions to the documentation are highly appreciated!
+
 ## 📜 License
 
 This project is licensed under the **MIT License**. See the `LICENSE` file for details.

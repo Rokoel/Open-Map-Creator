@@ -1,4 +1,4 @@
-import { constants } from "./constants.js"; // Import constants if needed
+import { constants } from "./constants.js";
 
 export class HUD {
   constructor(canvasManager, storageManager) {
@@ -8,13 +8,22 @@ export class HUD {
     this.setupCanvasSettings();
     this.setupLayerControls();
     this.setupEmptyCellSettings();
-    this.setupAppearanceSettings(); // Setup for shadows/borders
-    // Make HUD instance globally accessible (simple approach)
+    this.setupAppearanceSettings();
     window.hudInstance = this;
     // Initial update after potential autoload in main.js
     this.updateAppearanceControls();
   }
 
+  /**
+   * Sets up the toolbar functionality by adding event listeners to handle
+   * instrument selection and updating the toolbar's visual state.
+   * 
+   * - Listens for click events on the toolbar to detect button clicks.
+   * - Updates the active instrument in the canvas manager.
+   * - Loads the settings for the selected instrument.
+   * - Highlights the active button visually by changing its font weight.
+   * - Ensures the initial active button is styled correctly on setup.
+   */
   setupToolbar() {
     const toolbar = document.getElementById("toolbar");
     toolbar.addEventListener("click", (e) => {
@@ -32,6 +41,15 @@ export class HUD {
     if (initialButton) initialButton.style.fontWeight = "bold";
   }
 
+  /**
+   * Sets up the event listeners and initial values for configuring the settings of empty cells
+   * in the canvas. This includes handling fill color, border color, and pattern image uploads.
+   *
+   * - Initializes input fields with the current settings from the CanvasManager.
+   * - Updates the CanvasManager's settings and re-renders the canvas on user input.
+   * - Saves the history state when changes are finalized.
+   * - Handles image uploads for patterns, including validation and error handling.
+   */
   setupEmptyCellSettings() {
     const emptyFill = document.getElementById("emptyFillColor");
     const emptyBorder = document.getElementById("emptyBorderColor");
@@ -83,6 +101,13 @@ export class HUD {
     });
   }
 
+  /**
+   * Sets up the canvas settings by initializing the cell size input slider
+   * and adding an event listener to update the canvas cell size dynamically.
+   *
+   * This method links the cell size input element to the canvas manager,
+   * allowing users to adjust the cell size in real-time through a slider.
+   */
   setupCanvasSettings() {
     const cellSizeInput = document.getElementById("cellSize");
     cellSizeInput.value = this.canvasManager.currentCellSize; // Initialize slider
@@ -93,11 +118,18 @@ export class HUD {
     });
   }
 
+  /**
+   * Sets up the layer controls for the HUD (Heads-Up Display).
+   * 
+   * This method initializes event listeners for adding and removing layers
+   * in the canvas manager. It ensures that the UI is updated accordingly
+   * and includes safety checks to prevent removing the last remaining layer.
+   */
   setupLayerControls() {
     this.layerList = document.getElementById("layerList");
     document.getElementById("addLayer").addEventListener("click", () => {
       this.canvasManager.addLayer();
-      this.updateLayerList(); // Update UI (will also trigger appearance update via setActiveLayer)
+      this.updateLayerList(); // Update UI
     });
     document.getElementById("removeLayer").addEventListener("click", () => {
       if (this.canvasManager.layers.length <= 1) {
@@ -108,12 +140,21 @@ export class HUD {
       const layerName = this.canvasManager.layers[this.canvasManager.activeLayerIndex]?.name || 'the selected layer';
       if (confirm(`Are you sure you want to remove layer "${layerName}"?`)) {
           this.canvasManager.removeActiveLayer();
-          this.updateLayerList(); // Update UI (will also trigger appearance update via setActiveLayer)
+          this.updateLayerList(); // Update UI
       }
     });
-    // this.updateLayerList(); // Initial population called from main.js after potential load
   }
 
+  /**
+   * Updates the layer list in the HUD (Heads-Up Display) to reflect the current state of layers.
+   * Clears the existing list, iterates through the layers, and dynamically creates list items
+   * for each layer. Highlights the active layer and allows layer activation by clicking on its name.
+   * 
+   * Features:
+   * - Displays layer names as clickable elements.
+   * - Highlights the currently active layer.
+   * - Includes a placeholder for visibility toggle functionality (commented out).
+   */
   updateLayerList() {
     this.layerList.innerHTML = ""; // Clear existing list
     const currentActiveIndex = this.canvasManager.activeLayerIndex; // Cache before loop potentially changes it
@@ -159,7 +200,18 @@ export class HUD {
     });
   }
 
-  // Setup Appearance Settings Controls (Shadows & Borders)
+  /**
+   * Sets up the appearance settings for the HUD, including shadow and border controls.
+   * This method initializes event listeners for various UI elements to update the appearance
+   * of the active layer and grid options in the canvas manager.
+   *
+   * Functionality includes:
+   * - Enabling/disabling shadows and borders.
+   * - Synchronizing shadow angle between slider and number input.
+   * - Updating shadow offset, color, and alpha transparency.
+   * - Handling border pattern file uploads and previews.
+   * - Saving changes to the canvas manager's history.
+   */
   setupAppearanceSettings() {
     // Shadow Controls
     const shadowsEnabled = document.getElementById("shadowsEnabled");
@@ -176,8 +228,6 @@ export class HUD {
     const borderPatternPreview = document.getElementById("borderPatternPreview");
 
     // Initial population is handled by updateAppearanceControls
-
-    // --- Event Listeners ---
 
     // Enable/Disable Shadows
     shadowsEnabled.addEventListener("change", (e) => {
@@ -258,21 +308,81 @@ export class HUD {
     });
     borderPatternInput.addEventListener("change", (e) => {
       const file = e.target.files[0];
-      if (!file) { /* ... clear border options ... */ return; }
+      const cm = this.canvasManager; // Alias for canvasManager
+
+      // Clear border options if no file is selected
+      if (!file) {
+        cm.gridBorderOptions.image = null;
+        cm.gridBorderOptions.imageSrc = null;
+        borderPatternPreview.style.display = "none";
+        borderPatternPreview.src = "#"; // Clear preview source
+        cm.render();
+        cm.saveHistory();
+        return; // Exit early
+      }
+
+      // Load border image
       const reader = new FileReader();
-      reader.onload = (event) => { /* ... load border image ... */ };
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          // Update canvas manager state
+          cm.gridBorderOptions.image = img;
+          cm.gridBorderOptions.imageSrc = img.src; // Store src
+
+          // Update UI preview
+          borderPatternPreview.src = img.src;
+          borderPatternPreview.style.display = "block";
+
+          // Re-render and save state
+          cm.render();
+          cm.saveHistory();
+        };
+        img.onerror = () => {
+          // Handle image loading errors
+          console.error("Failed to load border pattern image.");
+          alert("Failed to load the selected image for the border pattern.");
+          // Reset state and UI if loading fails
+          cm.gridBorderOptions.image = null;
+          cm.gridBorderOptions.imageSrc = null;
+          borderPatternPreview.style.display = "none";
+          borderPatternPreview.src = "#";
+        };
+        // Start loading the image
+        img.src = event.target.result;
+      };
+      // Handle file reading errors
+      reader.onerror = (error) => {
+        console.error("Error reading border pattern file:", error);
+        alert("Could not read the selected file.");
+      };
+      // Read the file as a Data URL
       reader.readAsDataURL(file);
     });
-}
+  }
 
-  // Helper to update appearance controls from CanvasManager state
+  /**
+   * Updates the appearance controls in the HUD (Heads-Up Display) based on the current
+   * state of the canvas manager and its active layer. This includes updating shadow
+   * controls, border controls, and related UI elements.
+   *
+   * - Shadow controls:
+   *   - Enables/disables shadows.
+   *   - Updates shadow angle, offset, color, and alpha values.
+   * - Border controls:
+   *   - Enables/disables borders.
+   *   - Updates the border pattern preview.
+   *
+   * The method ensures that the UI reflects the current configuration of the canvas
+   * manager and its layers, including default values when necessary.
+   */
   updateAppearanceControls() {
     const cm = this.canvasManager;
     const activeLayer = cm.layers[cm.activeLayerIndex];
     const shadowOptions = activeLayer?.gridShadowOptions || constants.defaultGridShadowOptions;
     const currentShadowColor = shadowOptions.color || constants.defaultGridShadowOptions.color;
 
-    // --- Update Shadow Controls ---
+    // Update Shadow Controls
     document.getElementById("shadowsEnabled").checked = shadowOptions.enabled;
 
     // Angle (update both slider and number input)
@@ -307,7 +417,7 @@ export class HUD {
         shadowAlphaValueSpan.textContent = alpha.toFixed(2); // Display formatted alpha
     }
 
-    // --- Update Border Controls (still global) ---
+    // Update Border Controls (still global)
     document.getElementById("bordersEnabled").checked = cm.gridBorderOptions.enabled;
     const borderPatternPreview = document.getElementById("borderPatternPreview");
     if (cm.gridBorderOptions.imageSrc) {
@@ -318,14 +428,25 @@ export class HUD {
         borderPatternPreview.style.display = 'none';
     }
     document.getElementById("borderPattern").value = '';
-}
+  }
 
-  // Load settings specific to the selected instrument
+  /**
+   * Updates the HUD to display settings for the selected instrument.
+   * Dynamically generates and appends the appropriate UI elements based on the instrument type.
+   *
+   * @param {string} instrument - The name of the instrument/tool to load settings for.
+   * Supported values include:
+   * - "gridDraw": Displays settings for grid drawing, including fill color, border color, and pattern selection.
+   * - "freeDraw": Displays settings for free drawing, including fill color, stroke color, period, size, and optional pattern image.
+   * - "addObject": Displays settings for adding custom objects, including image upload and preview.
+   * - "select": Displays settings for selection tools, including delete, rotate, and resize options.
+   * - Other values: Displays a message indicating no specific settings are available.
+   */
   loadInstrumentSettings(instrument) {
     const instrSettings = document.getElementById("instrumentSettings");
     instrSettings.innerHTML = "<h3>Instrument Settings</h3>"; // Clear previous, add title back
 
-    // --- Grid Draw ---
+    // Grid Draw
     if (instrument === "gridDraw") {
       const settingsDiv = document.createElement('div');
 
@@ -430,7 +551,7 @@ export class HUD {
 
       instrSettings.appendChild(settingsDiv);
 
-    // --- Free Draw ---
+    // Free Draw
     } else if (instrument === "freeDraw") {
       const settingsDiv = document.createElement('div');
       // Fill Color, Stroke Color, Period, Size, Connect SVG (similar structure as gridDraw)
@@ -501,7 +622,7 @@ export class HUD {
 
       instrSettings.appendChild(settingsDiv);
 
-    // --- Add Object ---
+    // Add Object
     } else if (instrument === "addObject") {
       const settingsDiv = document.createElement('div');
       const fileLabel = document.createElement("label"); fileLabel.textContent = "Object Image: ";
@@ -540,7 +661,7 @@ export class HUD {
       settingsDiv.appendChild(objPreview); // Add preview
       instrSettings.appendChild(settingsDiv);
 
-    // --- Select Tool ---
+    // Select Tool
     } else if (instrument === "select") {
       const settingsDiv = document.createElement('div');
       // Check if anything is selected to enable/disable buttons
@@ -581,7 +702,7 @@ export class HUD {
 
       instrSettings.appendChild(settingsDiv);
 
-    // --- Erase Tool or others ---
+    // Erase Tool or others
     } else {
       const settingsDiv = document.createElement('div');
       settingsDiv.textContent = "No specific settings for this tool.";

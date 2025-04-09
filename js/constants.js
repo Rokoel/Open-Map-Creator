@@ -3,8 +3,8 @@ const constants = {
     defaultEmptyCellBorderColor: "#e0e0e0",
     defaultGridDrawFillColor: "#000000",
     defaultGridDrawBorderColor: "#aaaaaa",
-    defaultFreeFillColor: "#000000", // Light blue
-    defaultFreeBorderColor: "#000000", // Blue
+    defaultFreeFillColor: "#000000", // Black
+    defaultFreeBorderColor: "#000000", // Black
     attentionColor: "#ffcc00", // Yellowish for placeholders/warnings
     errorColor: "#ff00ff", // Magenta for errors
     selectionRectColor: "#0000ff", // Blue dashed line
@@ -19,7 +19,7 @@ const constants = {
     mapBackupFileName: "ttrpg_map_export",
     mapPDFFileName: "ttrpg_map_print",
     localStorageKey: "ttrpgMapCreatorData", // Key for local storage
-    saveFileVersion: "1.1.0", // Version for save file format
+    saveFileVersion: "1.0.0", // Version for save file format
 
     // PDF Export Page Sizes (in mm)
     pageSizesMM: {

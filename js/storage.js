@@ -5,6 +5,11 @@ export class StorageManager {
     this.canvasManager = canvasManager;
   }
 
+  /**
+   * Exports the current map data as a JSON file.
+   * The exported file includes versioning information and app identification.
+   * The file is named using a predefined constant and the current date in the format `YYYY-MM-DD`.
+   */
   exportMap() {
     try {
         const mapData = this.canvasManager.getMapData();
@@ -31,6 +36,16 @@ export class StorageManager {
     }
   }
 
+  /**
+   * Handles the import of a map file in JSON format.
+   * 
+   * This method allows the user to select a JSON file containing map data.
+   * It validates the file's content and, upon confirmation, replaces the current map
+   * with the imported data. If the file is invalid or an error occurs during the process,
+   * appropriate error messages are displayed.
+   * 
+   * @throws {Error} If the file content is not a valid JSON or does not match the expected map format.
+   */
   importMap() {
     const input = document.createElement("input");
     input.type = "file";
@@ -47,8 +62,6 @@ export class StorageManager {
           if (!data || typeof data !== 'object' || !data.settings || !data.layers) {
               throw new Error("Invalid map file format.");
           }
-          // Check version if needed
-          // if (data.version !== constants.saveFileVersion) { ... warn user ... }
 
           // Confirm overwrite
           if (confirm("Importing will replace the current map. Continue?")) {
@@ -69,12 +82,17 @@ export class StorageManager {
     input.click();
   }
 
+  /**
+   * Automatically saves the current map data to the browser's localStorage.
+   * Retrieves the map data from the canvas manager, updates the version, 
+   * and stores it using a predefined localStorage key. Handles potential 
+   * errors during the save process, including quota exceedance.
+   */
   autoSaveMap() {
     try {
         const mapData = this.canvasManager.getMapData();
-        mapData.version = constants.saveFileVersion; // Add version
+        mapData.version = constants.saveFileVersion;
         localStorage.setItem(constants.localStorageKey, JSON.stringify(mapData));
-        // console.log("Map auto-saved."); // Optional: for debugging
     } catch (error) {
         console.error("Error during auto-save:", error);
         // Avoid alerting frequently on auto-save errors
@@ -85,6 +103,18 @@ export class StorageManager {
     }
   }
 
+  /**
+   * Automatically loads map data from localStorage if available.
+   * 
+   * This method attempts to retrieve and parse saved map data from localStorage
+   * using a predefined key. If valid data is found, it is loaded into the canvas
+   * manager. If the data is invalid or an error occurs during parsing, the
+   * corrupted data is removed from localStorage.
+   * 
+   * Logs messages to the console to indicate the status of the operation.
+   * 
+   * @throws {Error} If the saved data format is invalid.
+   */
   autoLoadMap() {
     const saved = localStorage.getItem(constants.localStorageKey);
     if (saved) {
@@ -110,6 +140,20 @@ export class StorageManager {
     }
   }
 
+  /**
+   * Exports the current map as a multi-page PDF document.
+   * 
+   * This function generates a PDF by rendering the map content onto an offscreen canvas,
+   * tiling the rendered content into pages, and saving the result as a PDF file. The user
+   * is prompted to configure export settings such as page orientation, page size, DPI, and
+   * cell size.
+   * 
+   * The export process involves:
+   * - Calculating the export scale and page dimensions based on user input.
+   * - Rendering the map content to an offscreen canvas at the specified scale.
+   * - Splitting the rendered content into tiles that fit within the page dimensions.
+   * - Adding each tile as a page in the PDF.
+   */
   exportPDF() {
     const { jsPDF } = window.jspdf;
     if (!jsPDF) {
@@ -117,22 +161,22 @@ export class StorageManager {
         return;
     }
 
-    // --- Configuration Prompts ---
+    // Configuration Prompts
+    // TODO: Use a modal dialog instead of prompts for better UX
     let pageOrientation = prompt("Page orientation (portrait or landscape):", "landscape")?.toLowerCase();
     pageOrientation = (pageOrientation === "portrait") ? "portrait" : "landscape";
 
     let pageSizeInput = prompt("Page size (A4 or A3):", "A4")?.toUpperCase();
     pageSizeInput = (pageSizeInput === "A3") ? "A3" : "A4";
 
-    let dpiInput = prompt("Printer DPI (e.g., 150, 300):", "150");
+    let dpiInput = prompt("Printer DPI (e.g., 150, 300):", "300");
     let dpi = parseInt(dpiInput, 10);
-    if (isNaN(dpi) || dpi <= 0) dpi = 150; // Default DPI
+    if (isNaN(dpi) || dpi <= 0) dpi = 300; // Default DPI
 
-    let cellSizeCmInput = prompt("Desired cell size on paper (cm):", "2.5");
+    let cellSizeCmInput = prompt("Desired cell size on paper (cm):", "3");
     let cellSizeCm = parseFloat(cellSizeCmInput);
-    if (isNaN(cellSizeCm) || cellSizeCm <= 0) cellSizeCm = 2.5; // Default size (approx 1 inch)
+    if (isNaN(cellSizeCm) || cellSizeCm <= 0) cellSizeCm = 3; // Default size (approx 1 inch)
 
-    // --- Calculations ---
     // Export scale: pixels per logical cell unit
     const exportScale = (cellSizeCm / 2.54) * dpi; // px per logical cell
 
@@ -174,7 +218,7 @@ export class StorageManager {
     console.log(`Total export size: ${exportWidthPx} x ${exportHeightPx} px`);
     console.log(`Page size: ${pageWidthPx} x ${pageHeightPx} px (${pageSizeInput} ${pageOrientation})`);
 
-    // --- Offscreen Rendering ---
+    // Offscreen Rendering
     const offCanvas = document.createElement("canvas");
     offCanvas.width = exportWidthPx;
     offCanvas.height = exportHeightPx;
@@ -198,7 +242,7 @@ export class StorageManager {
 
     offCtx.restore(); // Restore context state
 
-    // --- PDF Generation & Tiling ---
+    // PDF Generation & Tiling
     console.log("Rendering complete. Generating PDF...");
     const pdf = new jsPDF({
       orientation: pageOrientation,
@@ -212,11 +256,6 @@ export class StorageManager {
     const totalPages = pagesX * pagesY;
 
     console.log(`Tiling into ${pagesX} x ${pagesY} = ${totalPages} pages.`);
-
-    // Add assembly instructions page (optional)
-    // pdf.addPage();
-    // pdf.text(`Assembly Instructions: ${pagesX} columns x ${pagesY} rows`, 20, 20);
-    // ... draw grid diagram ...
 
     // Add map pages
     for (let py = 0; py < pagesY; py++) {
@@ -264,7 +303,7 @@ export class StorageManager {
       }
     }
 
-    // --- Save PDF ---
+    // Save PDF
     try {
         const timestamp = new Date().toISOString().slice(0, 10);
         pdf.save(`${constants.mapPDFFileName}_${timestamp}.pdf`);
@@ -274,4 +313,4 @@ export class StorageManager {
         alert("Failed to save the PDF file. See console for details.");
     }
   }
-} // End of StorageManager class
+}

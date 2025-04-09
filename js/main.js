@@ -1,7 +1,7 @@
 import { CanvasManager } from "./canvas.js";
 import { HUD } from "./hud.js";
 import { StorageManager } from "./storage.js";
-import { constants } from "./constants.js"; // Import constants if needed here
+import { constants } from "./constants.js";
 
 document.addEventListener("DOMContentLoaded", () => {
   const canvasEl = document.getElementById("mapCanvas");
@@ -14,7 +14,7 @@ document.addEventListener("DOMContentLoaded", () => {
   hud.updateAppearanceControls();
   hud.loadInstrumentSettings(canvasManager.activeInstrument); // Load initial tool settings
 
-  // --- Event Listeners for Data Controls ---
+  // Event Listeners for Data Controls
   document
     .getElementById("exportMap")
     .addEventListener("click", () => storageManager.exportMap());
@@ -34,11 +34,7 @@ document.addEventListener("DOMContentLoaded", () => {
       )
     ) {
       canvasManager.clearCanvas();
-      // Optionally reset appearance settings on clear
-      // canvasManager.gridShadowOptions = { enabled: false, angle: 45, offset: 0.5, color: "#00000080" };
-      // canvasManager.gridBorderOptions = { enabled: false, image: null, imageSrc: null };
-      // hud.updateAppearanceControls(); // Update HUD if settings are reset
-      canvasManager.saveHistory(); // Save the cleared state
+      canvasManager.saveHistory();
     }
   });
 
@@ -48,18 +44,18 @@ document.addEventListener("DOMContentLoaded", () => {
         "Restarting will completely clear all data (layers, objects, settings, and saved progress). Continue?"
       )
     ) {
-      // 1. Clear Local Storage
+      // Clear Local Storage
       localStorage.removeItem(constants.localStorageKey);
 
-      // 2. Reset Canvas Manager State
-      canvasManager.clearCanvas(); // Clear objects from current layers
+      // Reset Canvas Manager State
+      canvasManager.clearCanvas();
 
       // Reset Layers
       canvasManager.layers = [{
           name: "Layer 1",
           objects: new Map(),
           visible: true,
-          gridShadowOptions: { ...constants.defaultGridShadowOptions } // Reset shadow options too
+          gridShadowOptions: { ...constants.defaultGridShadowOptions }
       }];
       canvasManager.activeLayerIndex = 0;
 
@@ -83,10 +79,10 @@ document.addEventListener("DOMContentLoaded", () => {
         imageSrc: null,
       };
 
-      // --- NEW: Reset Instrument-Specific Settings ---
+      // Reset Instrument-Specific Settings
       // Reset Grid Draw Settings
       canvasManager.gridDrawSettings = {
-        type: "color", // Default type
+        type: "color",
         fillColor: constants.defaultGridDrawFillColor,
         borderColor: constants.defaultGridDrawBorderColor,
         image: null,
@@ -108,10 +104,8 @@ document.addEventListener("DOMContentLoaded", () => {
       canvasManager.customObjectImage = null;
       canvasManager.customObjectImageSrc = null;
 
-      // Reset Active Instrument (optional, could default to gridDraw or select)
-      // canvasManager.setActiveInstrument('gridDraw'); // Already default, but explicit if needed
-
-      // --- End NEW ---
+      // Reset Active Instrument
+      canvasManager.setActiveInstrument('gridDraw');
 
       // Reset History & Selection
       canvasManager.history = [];
@@ -122,7 +116,7 @@ document.addEventListener("DOMContentLoaded", () => {
       canvasManager.selectionEnd = null;
       canvasManager.saveHistory(); // Save the initial empty state
 
-      // 3. Update HUD to Reflect Defaults
+      // Update HUD to Reflect Defaults
       if (window.hudInstance) { // Use global HUD instance
           // Update layer list
           window.hudInstance.updateLayerList();
@@ -138,14 +132,14 @@ document.addEventListener("DOMContentLoaded", () => {
           window.hudInstance.loadInstrumentSettings(canvasManager.activeInstrument);
       }
 
-      // 4. Re-render the cleared canvas
+      // Re-render the cleared canvas
       canvasManager.render();
 
       console.log("Application restarted to default state.");
     }
-});
+  });
 
-  // --- Keyboard Shortcuts ---
+  // Keyboard Shortcuts
   document.addEventListener("keydown", (e) => {
     // Allow input fields to work normally
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
@@ -193,26 +187,25 @@ document.addEventListener("DOMContentLoaded", () => {
            canvasManager.selectedObjects.custom.length > 0))
       {
         e.preventDefault();
-        canvasManager.copySelection(); // Use dedicated method
+        canvasManager.copySelection();
       }
     }
     // Paste (Ctrl+V or Cmd+V)
     else if ((e.ctrlKey || e.metaKey) && (e.key === "v" || e.key === "V")) {
       if (canvasManager.activeInstrument === "select" && canvasManager.copiedSelection) {
         e.preventDefault();
-        canvasManager.pasteSelection(); // Use dedicated method
+        canvasManager.pasteSelection();
       }
     }
   });
 
-  // --- Auto-Save ---
+  // Auto-Save
   setInterval(() => {
     storageManager.autoSaveMap();
-  }, constants.autoSaveInterval); // Use constant
+  }, constants.autoSaveInterval);
 
   // Also auto-save before page unload
   window.addEventListener("beforeunload", () => {
     storageManager.autoSaveMap();
-    // Note: Complex operations or alerts are often blocked in 'beforeunload'
   });
 });
