@@ -45,7 +45,10 @@
 
 ## 🚀 Getting Started
 
-Since Open Map Creator runs entirely in the browser, getting started is simple:
+The easiest way to begin using the Open Map Creator is through the link:
+rokoel.github.io/Open-Map-Creator/
+
+You can also run it locally:
 
 1.  **Clone the Repository:**
     ```bash
