@@ -10,7 +10,7 @@
 
 ---
 
-## What we focus on
+## 🔎 What we focus on
 
 *   **Open Source & Ease of Contribution:** Licensed under MIT, free to use, modify, and distribute. We welcome community contributions! Code is specifically written in JavaScript, HTML and CSS without any unnecessary libraries (currently, only [jsPDF](https://github.com/parallax/jsPDF) is used).
 *   **Browser-Based & Local:** Runs entirely in your modern web browser. No installation needed, and your maps are saved locally using your browser's storage unless you explicitly export them.
@@ -111,7 +111,7 @@ This project is just beginning! Here's the **TODO** of the project:
 *   [ ] User-defined color palettes.
 *   [ ] Measurement tools.
 
-Have other ideas? Open an issue! Know how to implement a feature? Contribute!
+Have other ideas? Open an issue! Know how to implement a feature or want to fix a bug/typo? Feel free to contribute!
 
 ---
 
