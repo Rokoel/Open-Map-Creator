@@ -46,7 +46,7 @@
 ## 🚀 Getting Started
 
 The easiest way to begin using the Open Map Creator is through the link:
-rokoel.github.io/Open-Map-Creator/
+https://rokoel.github.io/Open-Map-Creator/
 
 You can also run it locally:
 
