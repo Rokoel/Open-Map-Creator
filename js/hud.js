@@ -1,712 +1,1322 @@
+import { icon } from "./icons.js";
 import { constants } from "./constants.js";
+import { borderDefaults, lightDefaults, ambientDefaults } from "./scene.js";
+const $ = (id) => document.getElementById(id);
+const names = {
+  gridDraw: "Grid brush",
+  freeDraw: "Freehand brush",
+  erase: "Eraser",
+  addObject: "Image object",
+  select: "Selection",
+  light: "Light source",
+  layers: "Layers",
+};
 
 export class HUD {
   constructor(canvasManager, storageManager) {
     this.canvasManager = canvasManager;
     this.storageManager = storageManager;
-    this.setupToolbar();
-    this.setupCanvasSettings();
-    this.setupLayerControls();
-    this.setupEmptyCellSettings();
-    this.setupAppearanceSettings();
     window.hudInstance = this;
-    // Initial update after potential autoload in main.js
+    this.setupToolbar();
+    this.setupLayerControls();
+    this.setupAppearanceSettings();
+    this.setupLightingSettings();
+    this.setupEmptyCellSettings();
+    $("mapToggle").onclick = () =>
+      this.setMapCollapsed(!$("hud").classList.contains("is-collapsed"));
+    this.setMapCollapsed(true);
+    let storedTheme;
+    try {
+      storedTheme = localStorage.getItem("omc-theme");
+    } catch {}
+    const theme =
+      storedTheme ||
+      (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    document.documentElement.dataset.theme = theme;
+    $("themeToggle").setAttribute("aria-pressed", String(theme === "dark"));
+    $("themeToggle").addEventListener("click", () => {
+      const dark = document.documentElement.dataset.theme !== "dark";
+      document.documentElement.dataset.theme = dark ? "dark" : "light";
+      try {
+        localStorage.setItem("omc-theme", dark ? "dark" : "light");
+      } catch {}
+      $("themeToggle").setAttribute("aria-pressed", String(dark));
+    });
+    $("undo").onclick = () => {
+      canvasManager.undo();
+      this.refresh();
+    };
+    $("redo").onclick = () => {
+      canvasManager.redo();
+      this.refresh();
+    };
+    $("resetView").onclick = () => {
+      canvasManager.scale = 1;
+      canvasManager.offsetX = 100;
+      canvasManager.offsetY = 100;
+      canvasManager.render();
+    };
+    $("exportPNG").onclick = () => storageManager.exportPNG();
+    for (const [id, key] of [
+      ["exportColorMode", "colorMode"],
+      ["exportPadding", "padding"],
+    ]) {
+      $(id).onchange = () => {
+        canvasManager.exportSettings[key] =
+          key === "padding"
+            ? Math.max(0, Math.min(10, Number($(id).value) || 0))
+            : $(id).value;
+        this.commit();
+      };
+    }
+    document.addEventListener("keydown", (e) => {
+      if (
+        e.target.closest("input,textarea,select") ||
+        e.ctrlKey ||
+        e.metaKey ||
+        e.altKey
+      )
+        return;
+      const tool = {
+        v: "select",
+        g: "gridDraw",
+        b: "freeDraw",
+        e: "erase",
+        o: "addObject",
+        l: "light",
+        k: "layers",
+      }[e.key.toLowerCase()];
+      if (tool) {
+        e.preventDefault();
+        this.chooseTool(tool);
+      }
+      if (e.key === "Escape") {
+        canvasManager.selectedObjects = { grid: [], free: [], custom: [] };
+        canvasManager.render();
+        this.loadInstrumentSettings(canvasManager.activeInstrument);
+      }
+    });
     this.updateAppearanceControls();
   }
-
-  /**
-   * Sets up the toolbar functionality by adding event listeners to handle
-   * instrument selection and updating the toolbar's visual state.
-   * 
-   * - Listens for click events on the toolbar to detect button clicks.
-   * - Updates the active instrument in the canvas manager.
-   * - Loads the settings for the selected instrument.
-   * - Highlights the active button visually by changing its font weight.
-   * - Ensures the initial active button is styled correctly on setup.
-   */
+  refresh() {
+    this.updateLayerList();
+    this.updateAppearanceControls();
+    this.loadInstrumentSettings(this.canvasManager.activeInstrument);
+  }
+  setMapCollapsed(collapsed) {
+    $("hud").classList.toggle("is-collapsed", collapsed);
+    $("mapContents").hidden = collapsed;
+    $("mapToggle").setAttribute("aria-expanded", String(!collapsed));
+    $("mapToggle").title = collapsed
+      ? "Expand Map settings"
+      : "Minimize Map settings";
+    $("mapToggle")
+      .querySelector("use")
+      .setAttribute(
+        "href",
+        `assets/iconoir/sprite.svg#${collapsed ? "plus" : "minus"}`,
+      );
+  }
+  showPanel(id) {
+    if (id === "mapPanel") {
+      this.setMapCollapsed(false);
+      return;
+    }
+    if (id === "appearancePanel") {
+      this.chooseTool("layers");
+      return;
+    }
+    if (this.canvasManager.activeInstrument === "layers")
+      this.canvasManager.setActiveInstrument(
+        this.lastDrawingTool || "gridDraw",
+      );
+    this.loadInstrumentSettings(this.canvasManager.activeInstrument);
+  }
+  chooseTool(tool) {
+    if (tool === "layers" && this.canvasManager.activeInstrument !== "layers")
+      this.lastDrawingTool = this.canvasManager.activeInstrument;
+    this.canvasManager.setActiveInstrument(tool);
+    this.loadInstrumentSettings(tool);
+    this.syncToolbar();
+  }
+  syncToolbar() {
+    const tool = this.canvasManager.activeInstrument;
+    document
+      .querySelectorAll("[data-instrument]")
+      .forEach((b) =>
+        b.setAttribute("aria-pressed", String(b.dataset.instrument === tool)),
+      );
+    $("toolStatus").textContent = names[tool];
+  }
   setupToolbar() {
-    const toolbar = document.getElementById("toolbar");
-    toolbar.addEventListener("click", (e) => {
-      if (e.target.tagName === "BUTTON" && e.target.dataset.instrument) {
-        const instrument = e.target.dataset.instrument;
-        this.canvasManager.setActiveInstrument(instrument);
-        this.loadInstrumentSettings(instrument); // Update settings panel
-        // Highlight active button (optional)
-        toolbar.querySelectorAll("button").forEach(btn => btn.style.fontWeight = "normal");
-        e.target.style.fontWeight = "bold";
-      }
-    });
-    // Set initial active button style
-    const initialButton = toolbar.querySelector(`button[data-instrument="${this.canvasManager.activeInstrument}"]`);
-    if (initialButton) initialButton.style.fontWeight = "bold";
-  }
-
-  /**
-   * Sets up the event listeners and initial values for configuring the settings of empty cells
-   * in the canvas. This includes handling fill color, border color, and pattern image uploads.
-   *
-   * - Initializes input fields with the current settings from the CanvasManager.
-   * - Updates the CanvasManager's settings and re-renders the canvas on user input.
-   * - Saves the history state when changes are finalized.
-   * - Handles image uploads for patterns, including validation and error handling.
-   */
-  setupEmptyCellSettings() {
-    const emptyFill = document.getElementById("emptyFillColor");
-    const emptyBorder = document.getElementById("emptyBorderColor");
-    const emptyPatternInput = document.getElementById("emptyPattern");
-
-    // Initialize from CanvasManager state (already done in loadMapData/constructor)
-    emptyFill.value = this.canvasManager.emptyCellSettings.fillColor;
-    emptyBorder.value = this.canvasManager.emptyCellSettings.borderColor;
-
-    emptyFill.addEventListener("input", (e) => {
-      this.canvasManager.emptyCellSettings.fillColor = e.target.value;
-      this.canvasManager.render();
-    });
-    emptyFill.addEventListener("change", () => this.canvasManager.saveHistory()); // Save on release
-
-    emptyBorder.addEventListener("input", (e) => {
-      this.canvasManager.emptyCellSettings.borderColor = e.target.value;
-      this.canvasManager.render();
-    });
-    emptyBorder.addEventListener("change", () => this.canvasManager.saveHistory()); // Save on release
-
-    emptyPatternInput.addEventListener("change", (e) => {
-      const file = e.target.files[0];
-      if (!file) {
-          this.canvasManager.emptyCellSettings.pattern = null;
-          this.canvasManager.emptyCellSettings.patternSrc = null;
-          this.canvasManager.render();
-          this.canvasManager.saveHistory();
-          return;
-      };
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        let img = new Image();
-        img.onload = () => {
-          this.canvasManager.emptyCellSettings.pattern = img;
-          this.canvasManager.emptyCellSettings.patternSrc = img.src; // Store src
-          this.canvasManager.render();
-          this.canvasManager.saveHistory();
-        };
-        img.onerror = () => {
-            console.error("Failed to load empty cell pattern image.");
-            alert("Failed to load the selected image for the empty cell pattern.");
-            this.canvasManager.emptyCellSettings.pattern = null;
-            this.canvasManager.emptyCellSettings.patternSrc = null;
-        };
-        img.src = event.target.result;
-      };
-      reader.readAsDataURL(file);
-    });
-  }
-
-  /**
-   * Sets up the canvas settings by initializing the cell size input slider
-   * and adding an event listener to update the canvas cell size dynamically.
-   *
-   * This method links the cell size input element to the canvas manager,
-   * allowing users to adjust the cell size in real-time through a slider.
-   */
-  setupCanvasSettings() {
-    const cellSizeInput = document.getElementById("cellSize");
-    cellSizeInput.value = this.canvasManager.currentCellSize; // Initialize slider
-
-    cellSizeInput.addEventListener("input", (e) => {
-      const newSize = parseInt(e.target.value, 10);
-      this.canvasManager.updateCellSize(newSize);
-    });
-  }
-
-  /**
-   * Sets up the layer controls for the HUD (Heads-Up Display).
-   * 
-   * This method initializes event listeners for adding and removing layers
-   * in the canvas manager. It ensures that the UI is updated accordingly
-   * and includes safety checks to prevent removing the last remaining layer.
-   */
-  setupLayerControls() {
-    this.layerList = document.getElementById("layerList");
-    document.getElementById("addLayer").addEventListener("click", () => {
-      this.canvasManager.addLayer();
-      this.updateLayerList(); // Update UI
-    });
-    document.getElementById("removeLayer").addEventListener("click", () => {
-      if (this.canvasManager.layers.length <= 1) {
-          alert("Cannot remove the last layer.");
-          return;
-      }
-      // Use optional chaining for safety, though activeLayerIndex should always be valid
-      const layerName = this.canvasManager.layers[this.canvasManager.activeLayerIndex]?.name || 'the selected layer';
-      if (confirm(`Are you sure you want to remove layer "${layerName}"?`)) {
-          this.canvasManager.removeActiveLayer();
-          this.updateLayerList(); // Update UI
-      }
-    });
-  }
-
-  /**
-   * Updates the layer list in the HUD (Heads-Up Display) to reflect the current state of layers.
-   * Clears the existing list, iterates through the layers, and dynamically creates list items
-   * for each layer. Highlights the active layer and allows layer activation by clicking on its name.
-   * 
-   * Features:
-   * - Displays layer names as clickable elements.
-   * - Highlights the currently active layer.
-   * - Includes a placeholder for visibility toggle functionality (commented out).
-   */
-  updateLayerList() {
-    this.layerList.innerHTML = ""; // Clear existing list
-    const currentActiveIndex = this.canvasManager.activeLayerIndex; // Cache before loop potentially changes it
-
-    this.canvasManager.layers.forEach((layer, index) => {
-      const li = document.createElement("li");
-      // Basic editable layer name (optional)
-      const nameSpan = document.createElement("span");
-      nameSpan.textContent = layer.name;
-      nameSpan.style.cursor = "pointer";
-      nameSpan.title = "Click to activate";
-      // nameSpan.ondblclick = () => { /* Add rename logic here */ };
-      li.appendChild(nameSpan);
-
-      // TODO: Add visibility toggle button using layer.visible
-      // const visibilityBtn = document.createElement('button');
-      // visibilityBtn.textContent = layer.visible ? '👁️' : '🚫';
-      // visibilityBtn.title = layer.visible ? 'Hide Layer' : 'Show Layer';
-      // visibilityBtn.style.marginLeft = '10px';
-      // visibilityBtn.onclick = () => {
-      //     layer.visible = !layer.visible;
-      //     this.canvasManager.render();
-      //     this.canvasManager.saveHistory();
-      //     this.updateLayerList(); // Update button icon
-      // };
-      // li.appendChild(visibilityBtn);
-
-      if (index === currentActiveIndex) {
-        li.classList.add("active"); // Apply active style
-      }
-      li.addEventListener("click", (e) => {
-          // Prevent clicks on buttons inside li from activating layer
-          if (e.target === nameSpan) {
-              // Check if already active to prevent unnecessary updates
-              if (this.canvasManager.activeLayerIndex !== index) {
-                  this.canvasManager.setActiveLayer(index); // This now triggers HUD appearance update
-                  // We also need to update the list highlighting immediately
-                  this.updateLayerList();
-              }
-          }
-      });
-      this.layerList.appendChild(li);
-    });
-  }
-
-  /**
-   * Sets up the appearance settings for the HUD, including shadow and border controls.
-   * This method initializes event listeners for various UI elements to update the appearance
-   * of the active layer and grid options in the canvas manager.
-   *
-   * Functionality includes:
-   * - Enabling/disabling shadows and borders.
-   * - Synchronizing shadow angle between slider and number input.
-   * - Updating shadow offset, color, and alpha transparency.
-   * - Handling border pattern file uploads and previews.
-   * - Saving changes to the canvas manager's history.
-   */
-  setupAppearanceSettings() {
-    // Shadow Controls
-    const shadowsEnabled = document.getElementById("shadowsEnabled");
-    const shadowAngleSlider = document.getElementById("shadowAngle");
-    const shadowAngleNumber = document.getElementById("shadowAngleNumber");
-    const shadowOffset = document.getElementById("shadowOffset");
-    const shadowColorRGB = document.getElementById("shadowColorRGB");
-    const shadowAlphaSlider = document.getElementById("shadowAlpha");
-    const shadowAlphaValueSpan = document.getElementById("shadowAlphaValue");
-
-    // Border Controls (References needed if logic changes, otherwise just for completeness)
-    const bordersEnabled = document.getElementById("bordersEnabled");
-    const borderPatternInput = document.getElementById("borderPattern");
-    const borderPatternPreview = document.getElementById("borderPatternPreview");
-
-    // Initial population is handled by updateAppearanceControls
-
-    // Enable/Disable Shadows
-    shadowsEnabled.addEventListener("change", (e) => {
-      const activeLayer = this.canvasManager.layers[this.canvasManager.activeLayerIndex];
-      if (activeLayer && activeLayer.gridShadowOptions) {
-        activeLayer.gridShadowOptions.enabled = e.target.checked;
-        this.canvasManager.render();
-        this.canvasManager.saveHistory();
-      }
-    });
-
-    // Angle Synchronization & Update
-    const updateAngle = (newValue) => {
-        const angle = Math.max(0, Math.min(360, parseInt(newValue, 10) || 0)); // Clamp value
-        const activeLayer = this.canvasManager.layers[this.canvasManager.activeLayerIndex];
-        if (activeLayer && activeLayer.gridShadowOptions) {
-            activeLayer.gridShadowOptions.angle = angle;
-            // Update the *other* input control
-            if (document.activeElement !== shadowAngleSlider) {
-                shadowAngleSlider.value = angle;
-            }
-            if (document.activeElement !== shadowAngleNumber) {
-                shadowAngleNumber.value = angle;
-            }
-            this.canvasManager.render();
-        }
+    $("toolbar").onclick = (e) => {
+      const button = e.target.closest("[data-instrument]");
+      if (button) this.chooseTool(button.dataset.instrument);
     };
-    shadowAngleSlider.addEventListener("input", (e) => updateAngle(e.target.value));
-    shadowAngleNumber.addEventListener("input", (e) => updateAngle(e.target.value));
-    // Save history only on final change ('change' event)
-    shadowAngleSlider.addEventListener("change", () => { if (this.canvasManager.layers[this.canvasManager.activeLayerIndex]) this.canvasManager.saveHistory(); });
-    shadowAngleNumber.addEventListener("change", () => { if (this.canvasManager.layers[this.canvasManager.activeLayerIndex]) this.canvasManager.saveHistory(); });
-
-
-    // Offset Update
-    shadowOffset.addEventListener("input", (e) => {
-       const activeLayer = this.canvasManager.layers[this.canvasManager.activeLayerIndex];
-       if (activeLayer && activeLayer.gridShadowOptions) {
-        activeLayer.gridShadowOptions.offset = parseFloat(e.target.value);
-        this.canvasManager.render();
-       }
-    });
-    shadowOffset.addEventListener("change", () => { if (this.canvasManager.layers[this.canvasManager.activeLayerIndex]) this.canvasManager.saveHistory(); });
-
-    // Color/Alpha Update & Combination
-    const updateColor = () => {
-        const activeLayer = this.canvasManager.layers[this.canvasManager.activeLayerIndex];
-        if (activeLayer && activeLayer.gridShadowOptions) {
-            const rgbHex = shadowColorRGB.value; // #rrggbb
-            const alpha = parseFloat(shadowAlphaSlider.value); // 0.0 to 1.0
-
-            // Convert alpha (0-1) to 2-digit hex
-            const alphaHex = Math.round(alpha * 255).toString(16).padStart(2, '0');
-
-            // Combine and store as #rrggbbaa
-            activeLayer.gridShadowOptions.color = rgbHex + alphaHex;
-
-            // Update alpha display span
-            if (shadowAlphaValueSpan) {
-                shadowAlphaValueSpan.textContent = alpha.toFixed(2);
-            }
-
-            this.canvasManager.render();
-        }
-    };
-    shadowColorRGB.addEventListener("input", updateColor);
-    shadowAlphaSlider.addEventListener("input", updateColor);
-    // Save history only on final change ('change' event)
-    shadowColorRGB.addEventListener("change", () => { if (this.canvasManager.layers[this.canvasManager.activeLayerIndex]) this.canvasManager.saveHistory(); });
-    shadowAlphaSlider.addEventListener("change", () => { if (this.canvasManager.layers[this.canvasManager.activeLayerIndex]) this.canvasManager.saveHistory(); });
-
-
-    // Border controls listeners (remain the same, modify global options)
-    bordersEnabled.addEventListener("change", (e) => {
-      this.canvasManager.gridBorderOptions.enabled = e.target.checked;
+    this.syncToolbar();
+  }
+  commit() {
+    this.canvasManager.saveHistory();
+    this.canvasManager.render();
+  }
+  field(parent, label, type, value, change, options = {}) {
+    const row = document.createElement("label");
+    row.className = "field";
+    row.append(document.createTextNode(label));
+    const input = document.createElement(
+      type === "select" ? "select" : "input",
+    );
+    input.setAttribute("aria-label", label);
+    if (type === "select")
+      for (const [value, text] of options.choices) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = text;
+        input.append(option);
+      }
+    else input.type = type;
+    for (const key of ["min", "max", "step"])
+      if (options[key] !== undefined) input[key] = options[key];
+    if (type === "checkbox") input.checked = value;
+    else input.value = value;
+    const apply = () => {
+      let v =
+        type === "checkbox"
+          ? input.checked
+          : type === "number" || type === "range"
+            ? Number(input.value)
+            : input.value;
+      if (typeof v === "number") {
+        if (!input.value || !Number.isFinite(v)) return;
+        v = Math.max(
+          Number(options.min ?? -Infinity),
+          Math.min(Number(options.max ?? Infinity), v),
+        );
+      }
+      change(v);
       this.canvasManager.render();
+    };
+    input.addEventListener("input", apply);
+    input.addEventListener("change", () => {
+      apply();
       this.canvasManager.saveHistory();
     });
-    borderPatternInput.addEventListener("change", (e) => {
-      const file = e.target.files[0];
-      const cm = this.canvasManager; // Alias for canvasManager
-
-      // Clear border options if no file is selected
-      if (!file) {
-        cm.gridBorderOptions.image = null;
-        cm.gridBorderOptions.imageSrc = null;
-        borderPatternPreview.style.display = "none";
-        borderPatternPreview.src = "#"; // Clear preview source
-        cm.render();
-        cm.saveHistory();
-        return; // Exit early
-      }
-
-      // Load border image
+    row.append(input);
+    parent.append(row);
+    return input;
+  }
+  hint(parent, text) {
+    const p = document.createElement("p");
+    p.className = "hint";
+    p.textContent = text;
+    parent.append(p);
+  }
+  button(parent, text, action, iconName = null) {
+    const b = document.createElement("button");
+    if (iconName) b.append(icon(iconName));
+    b.append(document.createTextNode(text));
+    b.onclick = action;
+    parent.append(b);
+    return b;
+  }
+  upload(parent, label, current, onload) {
+    const row = document.createElement("label");
+    row.className = "upload";
+    row.textContent = label;
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    row.append(input);
+    parent.append(row);
+    if (current) {
+      const preview = document.createElement("img");
+      preview.src = current;
+      preview.className = "preview";
+      preview.alt = label;
+      parent.append(preview);
+    }
+    input.onchange = () => {
+      const file = input.files[0];
+      if (!file) return;
       const reader = new FileReader();
-      reader.onload = (event) => {
-        const img = new Image();
-        img.onload = () => {
-          // Update canvas manager state
-          cm.gridBorderOptions.image = img;
-          cm.gridBorderOptions.imageSrc = img.src; // Store src
-
-          // Update UI preview
-          borderPatternPreview.src = img.src;
-          borderPatternPreview.style.display = "block";
-
-          // Re-render and save state
-          cm.render();
-          cm.saveHistory();
+      reader.onload = () => {
+        const image = new Image();
+        image.onload = async () => {
+          await onload(image);
+          this.commit();
+          this.loadInstrumentSettings(this.canvasManager.activeInstrument);
         };
-        img.onerror = () => {
-          // Handle image loading errors
-          console.error("Failed to load border pattern image.");
-          alert("Failed to load the selected image for the border pattern.");
-          // Reset state and UI if loading fails
-          cm.gridBorderOptions.image = null;
-          cm.gridBorderOptions.imageSrc = null;
-          borderPatternPreview.style.display = "none";
-          borderPatternPreview.src = "#";
-        };
-        // Start loading the image
-        img.src = event.target.result;
+        image.onerror = () =>
+          alert("This image could not be opened. Try PNG, JPEG, or SVG.");
+        image.src = reader.result;
       };
-      // Handle file reading errors
-      reader.onerror = (error) => {
-        console.error("Error reading border pattern file:", error);
-        alert("Could not read the selected file.");
-      };
-      // Read the file as a Data URL
       reader.readAsDataURL(file);
-    });
+    };
   }
-
-  /**
-   * Updates the appearance controls in the HUD (Heads-Up Display) based on the current
-   * state of the canvas manager and its active layer. This includes updating shadow
-   * controls, border controls, and related UI elements.
-   *
-   * - Shadow controls:
-   *   - Enables/disables shadows.
-   *   - Updates shadow angle, offset, color, and alpha values.
-   * - Border controls:
-   *   - Enables/disables borders.
-   *   - Updates the border pattern preview.
-   *
-   * The method ensures that the UI reflects the current configuration of the canvas
-   * manager and its layers, including default values when necessary.
-   */
-  updateAppearanceControls() {
+  setupEmptyCellSettings() {
     const cm = this.canvasManager;
-    const activeLayer = cm.layers[cm.activeLayerIndex];
-    const shadowOptions = activeLayer?.gridShadowOptions || constants.defaultGridShadowOptions;
-    const currentShadowColor = shadowOptions.color || constants.defaultGridShadowOptions.color;
-
-    // Update Shadow Controls
-    document.getElementById("shadowsEnabled").checked = shadowOptions.enabled;
-
-    // Angle (update both slider and number input)
-    const angle = shadowOptions.angle;
-    document.getElementById("shadowAngle").value = angle;
-    document.getElementById("shadowAngleNumber").value = angle;
-
-    // Offset
-    document.getElementById("shadowOffset").value = shadowOptions.offset;
-
-    // Color and Alpha
-    let rgbHex = constants.defaultGridShadowOptions.color.substring(0, 7);
-    let alpha = 0.5; // Default alpha value (0-1 range)
-
-    if (typeof currentShadowColor === 'string' && currentShadowColor.startsWith('#')) {
-        if (currentShadowColor.length >= 7) {
-            rgbHex = currentShadowColor.substring(0, 7); // Extract #rrggbb
-        }
-        if (currentShadowColor.length === 9) {
-            const alphaHex = currentShadowColor.substring(7, 9);
-            const alphaInt = parseInt(alphaHex, 16);
-            if (!isNaN(alphaInt)) {
-                alpha = alphaInt / 255; // Convert hex alpha to 0-1 range
-            }
-        }
+    for (const [id, key] of [
+      ["emptyFillColor", "fillColor"],
+      ["emptyBorderColor", "borderColor"],
+    ]) {
+      $(id).oninput = (e) => {
+        cm.emptyCellSettings[key] = e.target.value;
+        cm.render();
+      };
+      $(id).onchange = (e) => {
+        $(id).oninput(e);
+        this.commit();
+      };
     }
-
-    document.getElementById("shadowColorRGB").value = rgbHex;
-    document.getElementById("shadowAlpha").value = alpha;
-    const shadowAlphaValueSpan = document.getElementById("shadowAlphaValue");
-    if (shadowAlphaValueSpan) {
-        shadowAlphaValueSpan.textContent = alpha.toFixed(2); // Display formatted alpha
-    }
-
-    // Update Border Controls (still global)
-    document.getElementById("bordersEnabled").checked = cm.gridBorderOptions.enabled;
-    const borderPatternPreview = document.getElementById("borderPatternPreview");
-    if (cm.gridBorderOptions.imageSrc) {
-        borderPatternPreview.src = cm.gridBorderOptions.imageSrc;
-        borderPatternPreview.style.display = 'block';
-    } else {
-        borderPatternPreview.src = "#";
-        borderPatternPreview.style.display = 'none';
-    }
-    document.getElementById("borderPattern").value = '';
+    $("emptyPattern").onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const image = new Image();
+        image.onload = () => {
+          cm.emptyCellSettings.pattern = image;
+          cm.emptyCellSettings.patternSrc = image.src;
+          this.commit();
+        };
+        image.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    };
   }
-
-  /**
-   * Updates the HUD to display settings for the selected instrument.
-   * Dynamically generates and appends the appropriate UI elements based on the instrument type.
-   *
-   * @param {string} instrument - The name of the instrument/tool to load settings for.
-   * Supported values include:
-   * - "gridDraw": Displays settings for grid drawing, including fill color, border color, and pattern selection.
-   * - "freeDraw": Displays settings for free drawing, including fill color, stroke color, period, size, and optional pattern image.
-   * - "addObject": Displays settings for adding custom objects, including image upload and preview.
-   * - "select": Displays settings for selection tools, including delete, rotate, and resize options.
-   * - Other values: Displays a message indicating no specific settings are available.
-   */
-  loadInstrumentSettings(instrument) {
-    const instrSettings = document.getElementById("instrumentSettings");
-    instrSettings.innerHTML = "<h3>Instrument Settings</h3>"; // Clear previous, add title back
-
-    // Grid Draw
-    if (instrument === "gridDraw") {
-      const settingsDiv = document.createElement('div');
-
-      // Fill Color
-      const fcLabel = document.createElement("label"); fcLabel.textContent = "Fill Color: ";
-      const fcInput = document.createElement("input"); fcInput.type = "color";
-      fcInput.value = this.canvasManager.gridDrawSettings.fillColor;
-      fcInput.addEventListener("input", (e) => {
-        this.canvasManager.gridDrawSettings.fillColor = e.target.value;
-        this.canvasManager.gridDrawSettings.type = "color"; // Switch to color mode
-        this.canvasManager.gridDrawSettings.image = null;
-        this.canvasManager.gridDrawSettings.imageSrc = null;
-      });
-      settingsDiv.appendChild(fcLabel); settingsDiv.appendChild(fcInput); settingsDiv.appendChild(document.createElement("br"));
-
-      // Border Color
-      const bcLabel = document.createElement("label"); bcLabel.textContent = "Border Color: ";
-      const bcInput = document.createElement("input"); bcInput.type = "color";
-      bcInput.value = this.canvasManager.gridDrawSettings.borderColor;
-      bcInput.addEventListener("input", (e) => { this.canvasManager.gridDrawSettings.borderColor = e.target.value; });
-      settingsDiv.appendChild(bcLabel); settingsDiv.appendChild(bcInput); settingsDiv.appendChild(document.createElement("br"));
-
-      // Image List for Grid Draw Patterns
-      const imgListLabel = document.createElement("label"); imgListLabel.textContent = "Select Pattern:";
-      settingsDiv.appendChild(imgListLabel); settingsDiv.appendChild(document.createElement("br"));
-      const imageListContainer = document.createElement("div");
-      imageListContainer.id = "gridImageList";
-      imageListContainer.style.display = "flex"; imageListContainer.style.flexWrap = "wrap";
-      imageListContainer.style.gap = "5px"; imageListContainer.style.marginBottom = "10px";
-      imageListContainer.style.maxHeight = "100px"; imageListContainer.style.overflowY = "auto";
-      imageListContainer.style.border = "1px solid #eee"; imageListContainer.style.padding = "3px";
-
-      // Add previously uploaded images as thumbnails
-      if (this.canvasManager.gridImageList && this.canvasManager.gridImageList.length) {
-        this.canvasManager.gridImageList.forEach((imgSrc) => {
-          const thumb = document.createElement("img");
-          thumb.src = imgSrc;
-          thumb.classList.add("image-thumbnail"); // Use class for styling
-          thumb.title = "Click to select this pattern";
-          // Highlight if it's the currently selected pattern
-          if (imgSrc === this.canvasManager.gridDrawSettings.imageSrc) {
-              thumb.style.border = "2px solid blue";
-          }
-          thumb.addEventListener("click", () => {
-            let img = new Image();
-            img.onload = () => {
-                this.canvasManager.gridDrawSettings.image = img;
-                this.canvasManager.gridDrawSettings.imageSrc = imgSrc; // Store src
-                this.canvasManager.gridDrawSettings.type = "image";
-                this.loadInstrumentSettings("gridDraw"); // Refresh to show selection
-            };
-            img.onerror = () => console.error("Failed to load image for grid draw selection:", imgSrc);
-            img.src = imgSrc;
-          });
-          imageListContainer.appendChild(thumb);
-        });
-      } else {
-          imageListContainer.textContent = "No patterns added yet.";
+  setupLayerControls() {
+    this.layerList = $("layerList");
+    const cm = this.canvasManager;
+    $("addLayer").onclick = () => {
+      cm.addLayer();
+      this.refresh();
+    };
+    $("removeLayer").onclick = () => {
+      if (cm.layers.length === 1) return;
+      if (
+        confirm(
+          `Delete “${cm.layers[cm.activeLayerIndex].name}” and its artwork?`,
+        )
+      ) {
+        cm.removeActiveLayer();
+        this.refresh();
       }
-      settingsDiv.appendChild(imageListContainer);
-
-      // Image upload for adding new grid cell patterns
-      const cellImgLabel = document.createElement("label"); cellImgLabel.textContent = "Add New Pattern: ";
-      const cellImgInput = document.createElement("input"); cellImgInput.type = "file"; cellImgInput.accept = "image/*";
-      cellImgInput.addEventListener("change", (e) => {
+    };
+    const reorder = (delta) => {
+      const from = cm.activeLayerIndex,
+        to = from + delta;
+      if (to < 0 || to >= cm.layers.length) return;
+      [cm.layers[from], cm.layers[to]] = [cm.layers[to], cm.layers[from]];
+      for (const objects of [cm.freeDrawObjects, cm.customObjects])
+        for (const obj of objects.values()) {
+          if (obj.layerIndex === from) obj.layerIndex = to;
+          else if (obj.layerIndex === to) obj.layerIndex = from;
+        }
+      cm.activeLayerIndex = to;
+      this.commit();
+      this.refresh();
+    };
+    $("layerUp").onclick = () => reorder(1);
+    $("layerDown").onclick = () => reorder(-1);
+  }
+  updateLayerList() {
+    const cm = this.canvasManager;
+    if (this.layerList.querySelector(".layer-rename")) return;
+    this.layerList.replaceChildren();
+    [...cm.layers.entries()].reverse().forEach(([index, layer]) => {
+      const li = document.createElement("li");
+      li.classList.toggle("active", index === cm.activeLayerIndex);
+      const eye = this.button(
+        li,
+        "",
+        () => {
+          layer.visible = !layer.visible;
+          cm.selectedObjects = { grid: [], free: [], custom: [] };
+          this.commit();
+          this.refresh();
+        },
+        layer.visible ? "eye" : "eye-closed",
+      );
+      eye.title = layer.visible ? "Hide layer" : "Show layer";
+      eye.setAttribute("aria-label", `${eye.title}: ${layer.name}`);
+      const name = this.button(li, layer.name, () => {
+        cm.setActiveLayer(index);
+        // Keep the click target alive so the browser can deliver a double-click.
+        [...this.layerList.children].forEach((row) =>
+          row.classList.toggle("active", row === li),
+        );
+        $("layerUp").disabled = index === cm.layers.length - 1;
+        $("layerDown").disabled = index === 0;
+        this.updateAppearanceControls();
+        this.loadInstrumentSettings(cm.activeInstrument);
+      });
+      name.className = "layer-name";
+      name.title = "Click to activate; double-click to rename";
+      const beginRename = () => {
+        if (li.querySelector(".layer-rename")) return;
+        const input = document.createElement("input");
+        input.type = "text";
+        input.className = "layer-rename";
+        input.value = layer.name;
+        input.maxLength = 160;
+        input.setAttribute("aria-label", "Layer name");
+        let cancelled = false,
+          finished = false;
+        const finish = () => {
+          if (finished) return;
+          finished = true;
+          const value = input.value.trim();
+          if (!cancelled && value && value !== layer.name) {
+            layer.name = value;
+            this.commit();
+          }
+          name.textContent = layer.name;
+          input.replaceWith(name);
+          rename.setAttribute("aria-label", `Rename ${layer.name}`);
+          eye.setAttribute(
+            "aria-label",
+            `${layer.visible ? "Hide layer" : "Show layer"}: ${layer.name}`,
+          );
+        };
+        input.onkeydown = (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            input.blur();
+            name.focus();
+          }
+          if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            cancelled = true;
+            input.blur();
+            name.focus();
+          }
+        };
+        input.onblur = finish;
+        name.replaceWith(input);
+        input.focus();
+        input.select();
+      };
+      name.ondblclick = beginRename;
+      const rename = this.button(li, "", beginRename, "edit-pencil");
+      rename.title = "Rename layer";
+      rename.setAttribute("aria-label", `Rename ${layer.name}`);
+      const count = document.createElement("small");
+      count.textContent =
+        layer.objects.size +
+        [...cm.freeDrawObjects.values(), ...cm.customObjects.values()].filter(
+          (o) => o.layerIndex === index,
+        ).length;
+      li.append(count);
+      this.layerList.append(li);
+    });
+    $("layerUp").disabled = cm.activeLayerIndex === cm.layers.length - 1;
+    $("layerDown").disabled = cm.activeLayerIndex === 0;
+    $("removeLayer").disabled = cm.layers.length === 1;
+  }
+  setupAppearanceSettings() {
+    const cm = this.canvasManager;
+    for (const [id, key, type] of [
+      ["bordersEnabled", "enabled", "check"],
+      ["borderStyle", "style", "text"],
+      ["borderColor", "color", "text"],
+      ["borderWidth", "width", "number"],
+      ["hatchStrokes", "hatchStrokes", "number"],
+      ["hatchStacks", "hatchStacks", "number"],
+      ["hatchBlockDensity", "hatchBlockDensity", "number"],
+      ["hatchRandomness", "hatchRandomness", "number"],
+      ["hatchAngle", "hatchAngle", "number"],
+    ]) {
+      $(id).oninput = (e) => {
+        const limits = {
+          width: [0.1, 1],
+          hatchStrokes: [2, 12],
+          hatchStacks: [1, 6],
+          hatchBlockDensity: [0.3, 3],
+          hatchRandomness: [0, 1],
+          hatchAngle: [0, 180],
+          density: [8, 100],
+        }[key] || [0, Infinity];
+        cm.gridBorderOptions[key] =
+          type === "check"
+            ? e.target.checked
+            : type === "number"
+              ? Math.max(
+                  limits[0],
+                  Math.min(limits[1], Number(e.target.value) || limits[0]),
+                )
+              : e.target.value;
+        $("hatchSettings").hidden = cm.gridBorderOptions.style !== "hatch";
+        if (id === "borderStyle" && e.target.value === "image")
+          $("customBorderSettings").open = true;
+        cm.render();
+      };
+      $(id).onchange = (e) => {
+        $(id).oninput(e);
+        this.commit();
+      };
+    }
+    $("borderRegenerate").onclick = () => {
+      cm.gridBorderOptions.seed = (cm.gridBorderOptions.seed || 7) + 1;
+      this.commit();
+    };
+    for (const [id, imageKey, srcKey] of [
+      ["borderPattern", "image", "imageSrc"],
+      ["borderCornerPattern", "cornerImage", "cornerImageSrc"],
+    ]) {
+      $(id).onchange = (e) => {
         const file = e.target.files[0];
         if (!file) return;
         const reader = new FileReader();
-        reader.onload = (event) => {
-          const imgSrc = event.target.result;
-          // Add to list if not already present
-          if (!this.canvasManager.gridImageList.includes(imgSrc)) {
-              this.canvasManager.gridImageList.push(imgSrc);
-              this.canvasManager.saveHistory(); // Save state with new image list
-          }
-          // Set as current image
-          let img = new Image();
-          img.onload = () => {
-              this.canvasManager.gridDrawSettings.image = img;
-              this.canvasManager.gridDrawSettings.imageSrc = imgSrc;
-              this.canvasManager.gridDrawSettings.type = "image";
-              this.loadInstrumentSettings("gridDraw"); // Refresh UI
+        reader.onerror = () => {
+          $("borderUploadStatus").textContent =
+            "Could not read this file. Please try another image.";
+        };
+        reader.onload = () => {
+          const image = new Image();
+          image.onerror = () => {
+            $("borderUploadStatus").textContent =
+              "This image could not be opened. Use PNG, JPEG, or SVG.";
           };
-          img.onerror = () => console.error("Failed to load uploaded grid pattern:", imgSrc);
-          img.src = imgSrc;
+          image.onload = () => {
+            Object.assign(cm.gridBorderOptions, {
+              [imageKey]: image,
+              [srcKey]: image.src,
+              style: "image",
+              enabled: true,
+            });
+            this.commit();
+            this.updateAppearanceControls();
+          };
+          image.src = reader.result;
         };
         reader.readAsDataURL(file);
-        e.target.value = ''; // Clear file input visually
-      });
-      settingsDiv.appendChild(cellImgLabel); settingsDiv.appendChild(cellImgInput); settingsDiv.appendChild(document.createElement("br"));
-
-      // Button to switch back to color fill
-      const switchBtn = document.createElement("button");
-      switchBtn.textContent = "Use Color Fill";
-      switchBtn.addEventListener("click", () => {
-        this.canvasManager.gridDrawSettings.type = "color";
-        this.canvasManager.gridDrawSettings.image = null;
-        this.canvasManager.gridDrawSettings.imageSrc = null;
-        this.loadInstrumentSettings("gridDraw"); // Refresh UI
-      });
-      settingsDiv.appendChild(switchBtn);
-
-      instrSettings.appendChild(settingsDiv);
-
-    // Free Draw
-    } else if (instrument === "freeDraw") {
-      const settingsDiv = document.createElement('div');
-      // Fill Color, Stroke Color, Period, Size, Connect SVG (similar structure as gridDraw)
-      const fcLabel = document.createElement("label"); fcLabel.textContent = "Fill Color: ";
-      const fcInput = document.createElement("input"); fcInput.type = "color";
-      fcInput.value = this.canvasManager.freeDrawSettings.fillColor;
-      fcInput.addEventListener("input", (e) => {
-          this.canvasManager.freeDrawSettings.fillColor = e.target.value;
-          this.canvasManager.freeDrawSettings.image = null; // Clear image if color changes
-      });
-      settingsDiv.appendChild(fcLabel); settingsDiv.appendChild(fcInput); settingsDiv.appendChild(document.createElement("br"));
-
-      const scLabel = document.createElement("label"); scLabel.textContent = "Stroke Color: ";
-      const scInput = document.createElement("input"); scInput.type = "color";
-      scInput.value = this.canvasManager.freeDrawSettings.strokeColor;
-      scInput.addEventListener("input", (e) => { this.canvasManager.freeDrawSettings.strokeColor = e.target.value; });
-      settingsDiv.appendChild(scLabel); settingsDiv.appendChild(scInput); settingsDiv.appendChild(document.createElement("br"));
-
-      const pLabel = document.createElement("label"); pLabel.textContent = "Period (cells): ";
-      const pInput = document.createElement("input"); pInput.type = "number"; pInput.min = "0"; pInput.step = "0.1";
-      pInput.value = this.canvasManager.freeDrawSettings.period;
-      pInput.addEventListener("input", (e) => { this.canvasManager.freeDrawSettings.period = parseFloat(e.target.value) || 0; });
-      settingsDiv.appendChild(pLabel); settingsDiv.appendChild(pInput); settingsDiv.appendChild(document.createElement("br"));
-
-      const sLabel = document.createElement("label"); sLabel.textContent = "Size (cells): ";
-      const sInput = document.createElement("input"); sInput.type = "number"; sInput.step = "0.1"; sInput.min = "0.1";
-      sInput.value = this.canvasManager.freeDrawSettings.size;
-      sInput.addEventListener("input", (e) => { this.canvasManager.freeDrawSettings.size = parseFloat(e.target.value) || 1; });
-      settingsDiv.appendChild(sLabel); settingsDiv.appendChild(sInput); settingsDiv.appendChild(document.createElement("br"));
-
-      const conLabel = document.createElement("label"); conLabel.textContent = "Connect SVG: ";
-      const conInput = document.createElement("input"); conInput.type = "checkbox";
-      conInput.checked = this.canvasManager.freeDrawSettings.connectSVG;
-      conInput.addEventListener("change", (e) => { this.canvasManager.freeDrawSettings.connectSVG = e.target.checked; });
-      settingsDiv.appendChild(conLabel); settingsDiv.appendChild(conInput); settingsDiv.appendChild(document.createElement("br"));
-
-      // FreeDraw optional pattern image upload.
-      const fdImgLabel = document.createElement("label"); fdImgLabel.textContent = "Pattern Image: ";
-      const fdImgInput = document.createElement("input"); fdImgInput.type = "file"; fdImgInput.accept = "image/*";
-      // Add preview
-      const fdPreview = document.createElement("img");
-      fdPreview.alt = "FreeDraw pattern preview";
-      fdPreview.style.maxWidth = "32px"; fdPreview.style.maxHeight = "32px"; fdPreview.style.verticalAlign = "middle";
-      fdPreview.style.marginLeft = "5px";
-      fdPreview.style.display = this.canvasManager.freeDrawSettings.image ? 'inline-block' : 'none';
-      fdPreview.src = this.canvasManager.freeDrawSettings.image?.src || '#';
-
-      fdImgInput.addEventListener("change", (e) => {
-        const file = e.target.files[0];
-        if (!file) {
-            this.canvasManager.freeDrawSettings.image = null;
-            fdPreview.style.display = 'none'; fdPreview.src = '#';
-            return;
-        };
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          const img = new Image();
-          img.onload = () => {
-            this.canvasManager.freeDrawSettings.image = img;
-            fdPreview.src = img.src; fdPreview.style.display = 'inline-block';
-          };
-          img.onerror = () => { console.error("Failed to load free draw pattern"); fdPreview.style.display = 'none'; fdPreview.src = '#'; };
-          img.src = event.target.result;
-        };
-        reader.readAsDataURL(file);
-      });
-      settingsDiv.appendChild(fdImgLabel); settingsDiv.appendChild(fdImgInput); settingsDiv.appendChild(fdPreview);
-
-      instrSettings.appendChild(settingsDiv);
-
-    // Add Object
-    } else if (instrument === "addObject") {
-      const settingsDiv = document.createElement('div');
-      const fileLabel = document.createElement("label"); fileLabel.textContent = "Object Image: ";
-      const fileInput = document.createElement("input"); fileInput.type = "file"; fileInput.accept = "image/*";
-      // Add preview
-      const objPreview = document.createElement("img");
-      objPreview.alt = "Object preview";
-      objPreview.style.maxWidth = "50px"; objPreview.style.maxHeight = "50px";
-      objPreview.style.display = this.canvasManager.customObjectImageSrc ? 'block' : 'none';
-      objPreview.src = this.canvasManager.customObjectImageSrc || '#';
-      objPreview.style.marginTop = '5px';
-
-      fileInput.addEventListener("change", (e) => {
-        const file = e.target.files[0];
-        if (!file) {
-            this.canvasManager.customObjectImage = null;
-            this.canvasManager.customObjectImageSrc = null;
-            objPreview.style.display = 'none'; objPreview.src = '#';
-            return;
-        };
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          const img = new Image();
-          img.onload = () => {
-            this.canvasManager.customObjectImage = img;
-            this.canvasManager.customObjectImageSrc = img.src; // Store src
-            objPreview.src = img.src;
-            objPreview.style.display = 'block';
-          };
-          img.onerror = () => { console.error("Failed to load object image"); objPreview.style.display = 'none'; objPreview.src = '#'; };
-          img.src = event.target.result;
-        };
-        reader.readAsDataURL(file);
-      });
-      settingsDiv.appendChild(fileLabel); settingsDiv.appendChild(fileInput);
-      settingsDiv.appendChild(objPreview); // Add preview
-      instrSettings.appendChild(settingsDiv);
-
-    // Select Tool
-    } else if (instrument === "select") {
-      const settingsDiv = document.createElement('div');
-      // Check if anything is selected to enable/disable buttons
-      const hasSelection = this.canvasManager.selectedObjects.grid.length > 0 ||
-                           this.canvasManager.selectedObjects.free.length > 0 ||
-                           this.canvasManager.selectedObjects.custom.length > 0;
-
-      const deleteBtn = document.createElement("button");
-      deleteBtn.textContent = "Delete Selected (Del)";
-      deleteBtn.disabled = !hasSelection;
-      deleteBtn.addEventListener("click", () => { this.canvasManager.deleteSelection(); this.loadInstrumentSettings('select'); }); // Refresh HUD
-      settingsDiv.appendChild(deleteBtn); settingsDiv.appendChild(document.createElement("br"));
-
-      // Rotate Controls
-      const rotLabel = document.createElement("label"); rotLabel.textContent = "Rotate (deg): ";
-      const rotInput = document.createElement("input"); rotInput.type = "number"; rotInput.value = 0; rotInput.style.width = "60px";
-      const rotBtn = document.createElement("button"); rotBtn.textContent = "Apply"; rotBtn.disabled = !hasSelection;
-      rotBtn.addEventListener("click", () => {
-        const delta = parseFloat(rotInput.value) || 0;
-        this.canvasManager.rotateSelection(delta);
-        rotInput.value = 0; // Reset input
-        // No need to refresh HUD here as selection remains
-      });
-      settingsDiv.appendChild(rotLabel); settingsDiv.appendChild(rotInput); settingsDiv.appendChild(rotBtn); settingsDiv.appendChild(document.createElement("br"));
-
-      // Resize Controls
-      const resLabel = document.createElement("label"); resLabel.textContent = "Resize (factor): ";
-      const resInput = document.createElement("input"); resInput.type = "number"; resInput.step = "0.1"; resInput.min = "0.1"; resInput.value = 1; resInput.style.width = "60px";
-      const resBtn = document.createElement("button"); resBtn.textContent = "Apply"; resBtn.disabled = !hasSelection;
-      resBtn.addEventListener("click", () => {
-        const factor = parseFloat(resInput.value) || 1;
-        if (factor > 0) {
-            this.canvasManager.resizeSelection(factor);
-        }
-        resInput.value = 1; // Reset input
-      });
-      settingsDiv.appendChild(resLabel); settingsDiv.appendChild(resInput); settingsDiv.appendChild(resBtn);
-
-      instrSettings.appendChild(settingsDiv);
-
-    // Erase Tool or others
-    } else {
-      const settingsDiv = document.createElement('div');
-      settingsDiv.textContent = "No specific settings for this tool.";
-      instrSettings.appendChild(settingsDiv);
+      };
     }
+    const shadow = () => {
+      const layer = cm.layers[cm.activeLayerIndex];
+      if (!layer) return;
+      layer.gridShadowOptions = {
+        enabled: $("shadowsEnabled").checked,
+        angle: Number($("shadowAngle").value),
+        offset: Math.max(0, Math.min(5, Number($("shadowOffset").value))),
+        color:
+          $("shadowColorRGB").value +
+          Math.round(Number($("shadowAlpha").value) * 255)
+            .toString(16)
+            .padStart(2, "0"),
+      };
+      $("shadowAlphaValue").textContent = Number(
+        $("shadowAlpha").value,
+      ).toFixed(2);
+      cm.render();
+    };
+    for (const id of [
+      "shadowsEnabled",
+      "shadowAngle",
+      "shadowAngleNumber",
+      "shadowOffset",
+      "shadowColorRGB",
+      "shadowAlpha",
+    ]) {
+      $(id).oninput = () => {
+        if (id === "shadowAngle") $("shadowAngleNumber").value = $(id).value;
+        if (id === "shadowAngleNumber") $("shadowAngle").value = $(id).value;
+        shadow();
+      };
+      $(id).onchange = (e) => {
+        $(id).oninput(e);
+        this.commit();
+      };
+    }
+  }
+  setupLightingSettings() {
+    const cm = this.canvasManager;
+    for (const [id, key] of [
+      ["preserveGlobalLight", "preserveGlobal"],
+      ["ambientBrightness", "brightness"],
+      ["ambientColor", "color"],
+      ["globalLightEnabled", "globalEnabled"],
+      ["globalLightColor", "lightColor"],
+      ["globalLightIntensity", "intensity"],
+      ["globalLightTint", "tintStrength"],
+      ["globalLightAngle", "angle"],
+      ["globalShadowLength", "shadowLength"],
+      ["globalShadowOpacity", "shadowOpacity"],
+      ["globalShadowColor", "shadowColor"],
+      ["globalShadowSoftness", "shadowSoftness"],
+    ]) {
+      $(id).oninput = (e) => {
+        const input = e.target;
+        if (input.type === "number" && input.value === "") return;
+        let value =
+          input.type === "checkbox"
+            ? input.checked
+            : input.type === "color"
+              ? input.value
+              : Number(input.value);
+        if (typeof value === "number") {
+          if (!Number.isFinite(value)) return;
+          value = Math.max(
+            input.min === "" ? -Infinity : Number(input.min),
+            Math.min(input.max === "" ? Infinity : Number(input.max), value),
+          );
+        }
+        const target = id.startsWith("global")
+          ? cm.globalLight
+          : cm.ambientLight;
+        target[key] = value;
+        cm.render();
+        this.updateLightingStatus();
+      };
+      $(id).onchange = (e) => {
+        $(id).oninput(e);
+        this.commit();
+      };
+    }
+    $("bakeLighting").onclick = () => cm.bakeLighting();
+    $("liveLighting").onclick = () => {
+      cm.bakedLighting = null;
+      cm.bakeStatus = "Live lighting";
+      cm.render();
+      this.updateLightingStatus();
+    };
+  }
+  updateLightingStatus() {
+    const cm = this.canvasManager;
+    $("preserveGlobalLight").checked = cm.ambientLight.preserveGlobal;
+    $("ambientBrightness").value = cm.ambientLight.brightness;
+    $("ambientBrightness").disabled = cm.ambientLight.preserveGlobal;
+    $("ambientColor").value = cm.ambientLight.color;
+    const global = { ...ambientDefaults, ...cm.globalLight };
+    $("globalLightEnabled").checked = !!global.globalEnabled;
+    for (const [id, key] of [
+      ["globalLightColor", "lightColor"],
+      ["globalLightIntensity", "intensity"],
+      ["globalLightTint", "tintStrength"],
+      ["globalLightAngle", "angle"],
+      ["globalShadowLength", "shadowLength"],
+      ["globalShadowOpacity", "shadowOpacity"],
+      ["globalShadowColor", "shadowColor"],
+      ["globalShadowSoftness", "shadowSoftness"],
+    ]) {
+      $(id).value = global[key];
+      $(id).disabled = !global.globalEnabled;
+    }
+
+    document
+      .querySelectorAll(".lighting-status")
+      .forEach((p) => (p.textContent = cm.bakeStatus || "Live lighting"));
+    $("liveLighting").disabled = !cm.bakedLighting;
+  }
+  updateAppearanceControls() {
+    this.updateLightingStatus();
+    const cm = this.canvasManager,
+      b = { ...borderDefaults, ...cm.gridBorderOptions },
+      s = {
+        ...constants.defaultGridShadowOptions,
+        ...cm.layers[cm.activeLayerIndex]?.gridShadowOptions,
+      };
+    for (const [id, key] of [
+      ["borderStyle", "style"],
+      ["borderColor", "color"],
+      ["borderWidth", "width"],
+      ["hatchStrokes", "hatchStrokes"],
+      ["hatchStacks", "hatchStacks"],
+      ["hatchBlockDensity", "hatchBlockDensity"],
+      ["hatchRandomness", "hatchRandomness"],
+      ["hatchAngle", "hatchAngle"],
+    ])
+      $(id).value = b[key];
+    $("bordersEnabled").checked = b.enabled;
+    $("hatchSettings").hidden = b.style !== "hatch";
+    $("borderPatternPreview").hidden = !b.imageSrc;
+    if (b.imageSrc) $("borderPatternPreview").src = b.imageSrc;
+    $("borderCornerPatternPreview").hidden = !b.cornerImageSrc;
+    if (b.cornerImageSrc)
+      $("borderCornerPatternPreview").src = b.cornerImageSrc;
+    $("borderUploadStatus").textContent =
+      b.imageSrc && b.cornerImageSrc
+        ? "Edge and corner ready. Rotation, mirroring, and joins are automatic."
+        : b.imageSrc
+          ? "Edge ready — upload a corner image to complete the pattern."
+          : b.cornerImageSrc
+            ? "Corner ready — upload an edge image to complete the pattern."
+            : "Custom borders need both an edge image and a corner image.";
+    $("shadowsEnabled").checked = s.enabled;
+    $("shadowAngle").value = s.angle;
+    $("shadowAngleNumber").value = s.angle;
+    $("shadowOffset").value = s.offset;
+    $("shadowColorRGB").value = s.color.slice(0, 7);
+    $("shadowAlpha").value = parseInt(s.color.slice(7, 9) || "80", 16) / 255;
+    $("shadowAlphaValue").textContent = Number($("shadowAlpha").value).toFixed(
+      2,
+    );
+    $("exportColorMode").value = cm.exportSettings.colorMode;
+    $("exportPadding").value = cm.exportSettings.padding;
+    $("emptyFillColor").value = cm.emptyCellSettings.fillColor;
+    $("emptyBorderColor").value = cm.emptyCellSettings.borderColor;
+    this.syncToolbar();
+  }
+  lightFields(parent, obj) {
+    this.field(parent, "Color", "color", obj.color, (v) => (obj.color = v));
+    this.field(
+      parent,
+      "Brightness",
+      "range",
+      obj.intensity,
+      (v) => (obj.intensity = v),
+      { min: 0, max: 2, step: 0.05 },
+    );
+    this.field(
+      parent,
+      "Range (cells)",
+      "number",
+      obj.radius,
+      (v) => (obj.radius = v),
+      { min: 0.5, max: 40, step: 0.5 },
+    );
+    this.field(
+      parent,
+      "Rebounds",
+      "number",
+      obj.bounces,
+      (v) => (obj.bounces = Math.round(v)),
+      { min: 0, max: 3, step: 1 },
+    );
+    this.button(
+      parent,
+      "Bake lighting",
+      () => this.canvasManager.bakeLighting(),
+      "floppy-disk",
+    );
+    const status = document.createElement("p");
+    status.className = "hint lighting-status";
+    status.textContent = this.canvasManager.bakeStatus || "Live lighting";
+    parent.append(status);
+    this.hint(
+      parent,
+      "Light illuminates this layer and visible layers below it. Solid grid cells and objects cast shadows. Rebounds use sampled, fading reflections.",
+    );
+  }
+  tilesetFields(parent, settings) {
+    const cm = this.canvasManager,
+      row = document.createElement("label"),
+      input = document.createElement("input");
+    row.className = "upload";
+    row.append(document.createTextNode("Add tileset textures"));
+    input.type = "file";
+    input.accept = "image/*";
+    input.multiple = true;
+    row.append(input);
+    parent.append(row);
+    input.onchange = async () => {
+      try {
+        const images = await Promise.all(
+          [...input.files].map(
+            (file) =>
+              new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onerror = reject;
+                reader.onload = async () => {
+                  try {
+                    const image = cm.getTileImage(reader.result);
+                    await image.decode();
+                    resolve(reader.result);
+                  } catch (error) {
+                    reject(error);
+                  }
+                };
+                reader.readAsDataURL(file);
+              }),
+          ),
+        );
+        if (!images.length || settings !== cm.gridDrawSettings) return;
+        cm.gridImageList = [...new Set([...cm.gridImageList, ...images])];
+        settings.tileset = [
+          ...new Set([...(settings.tileset || []), ...images]),
+        ];
+        settings.imageSrc = settings.tileset[0];
+        settings.image = cm.getTileImage(settings.imageSrc);
+        settings.type = "image";
+        settings.imageOutlineEnabled ??= false;
+        this.commit();
+        this.loadInstrumentSettings("gridDraw");
+      } catch {
+        alert("A texture could not be opened. Use PNG, JPEG, or SVG images.");
+      }
+    };
+    if (!cm.gridImageList.length) return;
+    const selected = settings.tileset?.length
+      ? settings.tileset
+      : settings.imageSrc
+        ? [settings.imageSrc]
+        : [];
+    const gallery = document.createElement("div");
+    gallery.className = "tileset-gallery";
+    cm.gridImageList.forEach((src, index) => {
+      const label = document.createElement("label"),
+        check = document.createElement("input"),
+        image = document.createElement("img");
+      label.className = "tile-choice";
+      check.type = "checkbox";
+      check.checked = selected.includes(src);
+      check.setAttribute("aria-label", `Use tile ${index + 1}`);
+      image.src = src;
+      image.alt = `Tile ${index + 1}`;
+      check.onchange = () => {
+        const active = new Set(
+          settings.tileset?.length ? settings.tileset : selected,
+        );
+        check.checked ? active.add(src) : active.delete(src);
+        settings.tileset = [...active];
+        settings.imageSrc = settings.tileset[0] || null;
+        settings.image = cm.getTileImage(settings.imageSrc);
+        settings.type = settings.tileset.length ? "image" : "color";
+        this.commit();
+        this.loadInstrumentSettings("gridDraw");
+      };
+      label.append(image, check);
+      gallery.append(label);
+    });
+    parent.append(gallery);
+    if (settings.type !== "image") return;
+    this.hint(
+      parent,
+      "Checked tiles are chosen randomly once per painted cell. Uncheck all but one to paint a specific tile. Rotation uses quarter turns so tiles fill their cells.",
+    );
+    for (const [label, key] of [
+      ["Random horizontal mirroring", "mirrorHorizontal"],
+      ["Random vertical mirroring", "mirrorVertical"],
+      ["Random quarter-turn rotation", "randomRotation"],
+    ])
+      this.field(
+        parent,
+        label,
+        "checkbox",
+        !!settings[key],
+        (v) => (settings[key] = v),
+      );
+    for (const [label, key, max, step] of [
+      ["Hue variation (±°)", "hueRandomness", 180, 1],
+      ["Saturation variation", "saturationRandomness", 1, 0.05],
+      ["Brightness variation", "brightnessRandomness", 1, 0.05],
+      ["Contrast variation", "contrastRandomness", 1, 0.05],
+    ])
+      this.field(
+        parent,
+        label,
+        "range",
+        settings[key] || 0,
+        (v) => (settings[key] = v),
+        { min: 0, max, step },
+      );
+  }
+  loadInstrumentSettings(instrument) {
+    const cm = this.canvasManager,
+      p = $("instrumentSettings");
+    $("toolPanel").hidden = instrument === "layers";
+    $("appearancePanel").hidden = instrument !== "layers";
+    $("inspectorToolTitle").textContent = names[instrument] || "Instrument";
+    p.replaceChildren();
+    const h = document.createElement("h3");
+    h.textContent = names[instrument];
+    p.append(h);
+    this.syncToolbar();
+    if (instrument === "gridDraw") {
+      const s = cm.gridDrawSettings;
+      this.hint(
+        p,
+        "Paint cells on the active layer. Use Layers for outer-edge textures and layer lighting.",
+      );
+      this.field(p, "Fill", "color", s.fillColor, (v) => {
+        s.fillColor = v;
+        s.type = "color";
+        s.image = null;
+        s.imageSrc = null;
+      });
+      const outlineKey =
+        s.type === "image" ? "imageOutlineEnabled" : "outlineEnabled";
+      const enabled =
+        s.type === "image" ? s[outlineKey] === true : s[outlineKey] !== false;
+      let outlineColor;
+      this.field(p, "Show cell outline", "checkbox", enabled, (v) => {
+        s[outlineKey] = v;
+        outlineColor.closest("label").hidden = !v;
+      });
+      outlineColor = this.field(
+        p,
+        "Cell outline",
+        "color",
+        s.borderColor,
+        (v) => (s.borderColor = v),
+      );
+      outlineColor.closest("label").hidden = !enabled;
+      this.field(
+        p,
+        "Blocks light",
+        "checkbox",
+        s.blocksLight !== false,
+        (v) => (s.blocksLight = v),
+      );
+      this.field(
+        p,
+        "Cast shadows",
+        "checkbox",
+        s.castsShadow !== false,
+        (v) => (s.castsShadow = v),
+      );
+      this.field(
+        p,
+        "Receive global shadows",
+        "checkbox",
+        (s.receivesGlobalShadow ?? s.receivesShadow) === true,
+        (v) => (s.receivesGlobalShadow = v),
+      );
+      this.field(
+        p,
+        "Receive light-source shadows",
+        "checkbox",
+        s.receivesLightShadow !== false,
+        (v) => (s.receivesLightShadow = v),
+      );
+      this.field(
+        p,
+        "Opacity",
+        "range",
+        s.opacity ?? 1,
+        (v) => (s.opacity = v),
+        { min: 0, max: 1, step: 0.01 },
+      );
+      this.tilesetFields(p, s);
+      this.button(p, "Use solid fill", () => {
+        s.type = "color";
+        s.image = null;
+        s.imageSrc = null;
+        this.commit();
+        this.loadInstrumentSettings(instrument);
+      });
+    } else if (instrument === "freeDraw") {
+      const s = cm.freeDrawSettings;
+      this.hint(p, "Draw or stamp texture on the active layer.");
+      this.field(p, "Fill", "color", s.fillColor, (v) => {
+        s.fillColor = v;
+        if (s.svgSource) cm.updateBrushImage();
+      });
+      this.field(
+        p,
+        "Outline",
+        "color",
+        s.strokeColor,
+        (v) => (s.strokeColor = v),
+      );
+      this.field(
+        p,
+        "Size baseline (cells)",
+        "range",
+        s.size,
+        (v) => cm.setBrushSize(v),
+        { min: 0.1, max: 30, step: 0.1 },
+      );
+      this.hint(
+        p,
+        "Hold Alt and scroll over the map to change baseline size. [ and ] also resize; the circle shows the diameter before size variation.",
+      );
+      this.field(
+        p,
+        "Spacing (cells)",
+        "number",
+        s.period,
+        (v) => (s.period = v),
+        { min: 0, max: 30, step: 0.1 },
+      );
+      this.upload(
+        p,
+        "Brush texture",
+        s.sourceImageSrc || s.image?.src,
+        async (img) => {
+          await cm.updateBrushImage(img.src);
+        },
+      );
+      if (s.image || s.sourceImageSrc) {
+        this.field(
+          p,
+          "Spread (cells)",
+          "number",
+          s.spread || 0,
+          (v) => (s.spread = v),
+          { min: 0, max: 10, step: 0.1 },
+        );
+        this.field(
+          p,
+          "Rotation randomness (±°)",
+          "number",
+          s.rotationRandomness || 0,
+          (v) => (s.rotationRandomness = v),
+          { min: 0, max: 180, step: 1 },
+        );
+        this.field(
+          p,
+          "Size randomness",
+          "range",
+          s.sizeRandomness || 0,
+          (v) => (s.sizeRandomness = v),
+          { min: 0, max: 0.95, step: 0.05 },
+        );
+        this.field(
+          p,
+          "Random mirroring",
+          "select",
+          s.mirroring || "none",
+          (v) => (s.mirroring = v),
+          {
+            choices: [
+              ["none", "None"],
+              ["horizontal", "Horizontal"],
+              ["vertical", "Vertical"],
+              ["both", "Both axes"],
+            ],
+          },
+        );
+        if (s.svgSource) {
+          this.field(
+            p,
+            "Keep original SVG colors",
+            "checkbox",
+            !!s.preserveSvgColors,
+            (v) => {
+              s.preserveSvgColors = v;
+              cm.updateBrushImage();
+            },
+          );
+          this.field(
+            p,
+            "SVG background",
+            "checkbox",
+            !!s.backgroundEnabled,
+            (v) => {
+              s.backgroundEnabled = v;
+              cm.updateBrushImage();
+            },
+          );
+          this.field(
+            p,
+            "SVG background color",
+            "color",
+            s.backgroundColor || "#ffffff",
+            (v) => {
+              s.backgroundColor = v;
+              cm.updateBrushImage();
+            },
+          );
+          this.hint(
+            p,
+            "Fill tints SVG artwork unless original colors are kept. SVG background replaces full-canvas background rectangles; leave it off for transparency.",
+          );
+        }
+        this.button(p, "Remove brush texture", () => {
+          cm.brushImageRequest = (cm.brushImageRequest || 0) + 1;
+          s.image = null;
+          s.svgSource = null;
+          s.sourceImageSrc = null;
+          this.commit();
+          this.loadInstrumentSettings("freeDraw");
+        });
+      }
+    } else if (instrument === "addObject") {
+      this.hint(
+        p,
+        "Upload an image, then click the map to place it on the active layer. Switch to Select to move, resize, and rotate.",
+      );
+      this.upload(p, "Object image", cm.customObjectImageSrc, (img) => {
+        cm.customObjectImage = img;
+        cm.customObjectImageSrc = img.src;
+      });
+    } else if (instrument === "light") {
+      this.field(
+        p,
+        "Placement layer",
+        "select",
+        String(cm.activeLayerIndex),
+        (v) => {
+          cm.setActiveLayer(Number(v));
+          this.updateLayerList();
+        },
+        {
+          choices: cm.layers.map((layer, index) => [String(index), layer.name]),
+        },
+      );
+      this.hint(
+        p,
+        "Click the map to place a light. Select it to move it or change its settings.",
+      );
+      this.lightFields(p, cm.lightSettings);
+    } else if (instrument === "select") {
+      const ids = cm.selectedObjects.custom,
+        objs = ids.map((id) => cm.customObjects.get(id)).filter(Boolean),
+        count = Object.values(cm.selectedObjects).reduce(
+          (n, a) => n + a.length,
+          0,
+        );
+      this.hint(
+        p,
+        objs.length === 1 && objs[0].type === "light"
+          ? "Drag the light marker to move it. Adjust its color, brightness, range, or rebounds below."
+          : cm.selectionGroup()
+            ? `${count} grouped objects. Drag a member to move the group; use the round handle to rotate around the marked pivot. Ctrl/Cmd+Shift+G ungroups.`
+            : count
+              ? `${count} selected. Drag to move. Use square handles to resize and the round handle to rotate. Shift constrains proportions or snaps rotation. Double-click a side to edit its length in cells.`
+              : "Click an object or drag a selection box. Selection and editing apply to the active visible layer.",
+      );
+      if (cm.selectedObjects.grid.length) {
+        const cells = cm.selectedObjects.grid
+            .map((id) => cm.layers[cm.activeLayerIndex].objects.get(id))
+            .filter(Boolean),
+          count = cells.filter((c) => c.castsShadow !== false).length;
+        this.field(p, "Fill", "color", cells[0].fillColor || "#ffffff", (v) => {
+          for (const cell of cells) {
+            cell.fillColor = v;
+            cell.type = "color";
+            delete cell.image;
+            delete cell.imageSrc;
+          }
+        });
+        const outlineCount = cells.filter(
+          (cell) => cell.outlineEnabled ?? cell.type !== "image",
+        ).length;
+        let outlineColor;
+        const outlineToggle = this.field(
+          p,
+          "Show cell outline",
+          "checkbox",
+          outlineCount === cells.length,
+          (v) => {
+            for (const cell of cells) cell.outlineEnabled = v;
+            outlineColor.closest("label").hidden = !v;
+          },
+        );
+        outlineToggle.indeterminate =
+          outlineCount > 0 && outlineCount < cells.length;
+        outlineColor = this.field(
+          p,
+          "Cell outline",
+          "color",
+          cells[0].borderColor || "#000000",
+          (v) => {
+            for (const cell of cells) cell.borderColor = v;
+          },
+        );
+        outlineColor.closest("label").hidden = outlineCount === 0;
+        const receiveCount = cells.filter(
+          (c) => (c.receivesGlobalShadow ?? c.receivesShadow) === true,
+        ).length;
+        const receive = this.field(
+          p,
+          "Receive global shadows",
+          "checkbox",
+          receiveCount === cells.length,
+          (v) => {
+            for (const cell of cells) cell.receivesGlobalShadow = v;
+          },
+        );
+        receive.indeterminate = receiveCount > 0 && receiveCount < cells.length;
+        const lightCount = cells.filter(
+          (c) => c.receivesLightShadow !== false,
+        ).length;
+        const lightToggle = this.field(
+          p,
+          "Receive light-source shadows",
+          "checkbox",
+          lightCount === cells.length,
+          (v) => {
+            for (const cell of cells) cell.receivesLightShadow = v;
+          },
+        );
+        lightToggle.indeterminate = lightCount > 0 && lightCount < cells.length;
+        this.field(
+          p,
+          "Opacity",
+          "range",
+          cells[0].opacity ?? 1,
+          (v) => {
+            for (const cell of cells) cell.opacity = v;
+          },
+          { min: 0, max: 1, step: 0.01 },
+        );
+        const toggle = this.field(
+          p,
+          "Cast shadows",
+          "checkbox",
+          count === cells.length,
+          (v) => {
+            for (const cell of cells) cell.castsShadow = v;
+          },
+        );
+        toggle.indeterminate = count > 0 && count < cells.length;
+        this.hint(
+          p,
+          "Applies to selected grid cells. Casting and receiving are independent. Global shadows are opt-in; light-source shadows have their own switch.",
+        );
+      }
+      const group = cm.selectionGroup(),
+        members = cm.selectedMembers();
+      if (group) {
+        this.field(
+          p,
+          "Group rotation (°)",
+          "number",
+          Number(((group.rotation * 180) / Math.PI).toFixed(2)),
+          (v) => cm.setGroupRotation(v),
+          { min: -3600, max: 3600, step: 1 },
+        );
+        this.hint(
+          p,
+          "The cross marks the shared pivot. Drag the group's round handle to rotate all members together.",
+        );
+      }
+      const groupButton = this.button(
+        p,
+        "Group objects",
+        () => cm.groupSelection(),
+        "link",
+      );
+      groupButton.disabled =
+        cm.selectedObjects.grid.length > 0 || members.length < 2 || !!group;
+      this.button(
+        p,
+        "Ungroup objects",
+        () => cm.ungroupSelection(),
+        "link-slash",
+      ).disabled = !members.some((m) => m.obj.groupId);
+      if (cm.selectedObjects.grid.length)
+        this.hint(
+          p,
+          "Grouping applies to image objects, brush stamps, and lights. Grid cells keep their grid positions.",
+        );
+      if (members.length === 1 && members[0].obj.type !== "light") {
+        const object = members[0].obj;
+        this.field(
+          p,
+          "Mirror horizontally",
+          "checkbox",
+          !!object.mirrorX,
+          (v) => (object.mirrorX = v),
+        );
+        this.field(
+          p,
+          "Mirror vertically",
+          "checkbox",
+          !!object.mirrorY,
+          (v) => (object.mirrorY = v),
+        );
+      }
+      if (objs.length === 1 && members.length === 1) {
+        const obj = objs[0];
+        if (obj.type === "light") this.lightFields(p, obj);
+        else {
+          const lock = this.button(p, "", () => {
+            obj.lockAspectRatio = !obj.lockAspectRatio;
+            updateLock();
+            this.commit();
+          });
+          const updateLock = () => {
+            lock.replaceChildren(
+              icon(obj.lockAspectRatio ? "lock" : "lock-slash"),
+              document.createTextNode(
+                obj.lockAspectRatio ? "Proportions locked" : "Lock proportions",
+              ),
+            );
+            lock.setAttribute("aria-pressed", String(!!obj.lockAspectRatio));
+            lock.setAttribute("aria-label", "Lock width/height ratio");
+          };
+          updateLock();
+          let widthInput, heightInput;
+          widthInput = this.field(
+            p,
+            "Width (cells)",
+            "number",
+            obj.width / cm.currentCellSize,
+            (v) => {
+              cm.setObjectDimension(obj, "width", v * cm.currentCellSize);
+              heightInput.value = Number(
+                (obj.height / cm.currentCellSize).toFixed(4),
+              );
+            },
+            { min: 0.05, max: 1000, step: 0.1 },
+          );
+          heightInput = this.field(
+            p,
+            "Height (cells)",
+            "number",
+            obj.height / cm.currentCellSize,
+            (v) => {
+              cm.setObjectDimension(obj, "height", v * cm.currentCellSize);
+              widthInput.value = Number(
+                (obj.width / cm.currentCellSize).toFixed(4),
+              );
+            },
+            { min: 0.05, max: 1000, step: 0.1 },
+          );
+          this.field(
+            p,
+            "Rotation (°)",
+            "number",
+            Math.round(((obj.rotation || 0) * 180) / Math.PI),
+            (v) => (obj.rotation = (v * Math.PI) / 180),
+            { min: -3600, max: 3600, step: 1 },
+          );
+          this.field(
+            p,
+            "Blocks light",
+            "checkbox",
+            obj.blocksLight !== false,
+            (v) => (obj.blocksLight = v),
+          );
+        }
+      }
+      if (count) {
+        const row = document.createElement("label");
+        row.className = "field";
+        row.textContent = "Move to layer";
+        const select = document.createElement("select");
+        select.setAttribute("aria-label", "Move to layer");
+        cm.layers.forEach((l, i) => {
+          const o = document.createElement("option");
+          o.value = i;
+          o.textContent = l.name;
+          select.append(o);
+        });
+        select.value = cm.activeLayerIndex;
+        select.onchange = () => {
+          const target = Number(select.value);
+          for (const kind of ["free", "custom"])
+            for (const id of cm.selectedObjects[kind]) {
+              const obj = (
+                kind === "free" ? cm.freeDrawObjects : cm.customObjects
+              ).get(id);
+              if (obj) obj.layerIndex = target;
+            }
+          for (const id of cm.selectedObjects.grid) {
+            const from = cm.layers[cm.activeLayerIndex].objects;
+            cm.layers[target].objects.set(id, from.get(id));
+            from.delete(id);
+          }
+          cm.setActiveLayer(target);
+          this.commit();
+          this.refresh();
+        };
+        row.append(select);
+        p.append(row);
+      }
+      this.button(
+        p,
+        "Delete selection",
+        () => {
+          cm.deleteSelection();
+          this.refresh();
+        },
+        "trash",
+      ).disabled = !count;
+    } else this.hint(p, "Drag to erase artwork on the active visible layer.");
   }
 }

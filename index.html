@@ -1,202 +1,607 @@
-<!DOCTYPE html>
+<!doctype html>
+
 <html lang="en">
   <head>
-    <meta charset="UTF-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0"
-    />
-    <title>TTRPG Map Creator</title>
-    <link rel="stylesheet" href="css/styles.css" />
-    <link rel="icon" type="image/png" href="/favicons/favicon-96x96.png" sizes="96x96" />
-    <link rel="icon" type="image/svg+xml" href="/favicons/favicon.svg" />
-    <link rel="shortcut icon" href="/favicon.ico"/>
-    <!-- Basic styling for thumbnails and active layer -->
-    <style>
-      .image-thumbnail {
-        width: 32px;
-        height: 32px;
-        border: 1px solid #ccc;
-        cursor: pointer;
-        object-fit: cover;
-        margin: 2px;
-      }
-      .image-thumbnail:hover {
-        border-color: #888;
-      }
-      #layerList li.active {
-        font-weight: bold;
-        background-color: #e0e0e0;
-      }
-      #hud { /* Basic HUD styling */
-        position: absolute;
-        top: 10px;
-        right: 10px;
-        background: rgba(255, 255, 255, 0.9);
-        border: 1px solid #ccc;
-        padding: 15px;
-        border-radius: 5px;
-        max-height: 95vh;
-        overflow-y: auto;
-        width: 300px; /* Adjust as needed */
-        box-shadow: 2px 2px 10px rgba(0,0,0,0.2);
-        z-index: 10;
-      }
-      #mapCanvas {
-        display: block; /* Remove extra space below canvas */
-      }
-      body {
-        margin: 0;
-        overflow: hidden; /* Prevent body scrolling */
-      }
-      label {
-        display: inline-block;
-        margin-bottom: 5px;
-        margin-top: 5px;
-      }
-      input[type="color"] {
-        vertical-align: middle;
-        margin-left: 5px;
-      }
-      input[type="range"], input[type="number"] {
-        width: 150px;
-        vertical-align: middle;
-      }
-      button {
-        margin: 3px;
-        padding: 5px 10px;
-      }
-      h3, h4 {
-        margin-top: 15px;
-        margin-bottom: 5px;
-        border-bottom: 1px solid #eee;
-        padding-bottom: 3px;
-      }
-      #layerList {
-        list-style: none;
-        padding: 0;
-        margin: 5px 0;
-        max-height: 150px;
-        overflow-y: auto;
-        border: 1px solid #eee;
-      }
-      #layerList li {
-        padding: 3px 5px;
-        border-bottom: 1px solid #eee;
-      }
-      #layerList li:last-child {
-        border-bottom: none;
-      }
-    </style>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <meta content="#19385d" name="theme-color" />
+    <title>Open Map Creator</title>
+    <link href="css/styles.css" rel="stylesheet" />
+    <link href="favicons/favicon.svg" rel="icon" type="image/svg+xml" />
   </head>
   <body>
-    <!-- Main canvas container -->
-    <canvas id="mapCanvas"></canvas>
-
-    <!-- Floating HUD Popup -->
-    <div id="hud">
-      <h2>Map Creator Tools</h2>
-      <div id="toolbar">
-        <button data-instrument="gridDraw">Grid Draw</button>
-        <button data-instrument="freeDraw">Free Draw</button>
-        <button data-instrument="erase">Erase</button>
-        <button data-instrument="addObject">Add Object</button>
-        <button data-instrument="select">Select</button>
+    <canvas
+      aria-label="Map editor. Use the tool rail to draw, select objects, or place lights."
+      id="mapCanvas"
+    ></canvas>
+    <header class="appbar">
+      <div class="brand">
+        <span aria-hidden="true" class="brand-icon"
+          ><svg aria-hidden="true" class="icon" focusable="false">
+            <use href="assets/iconoir/sprite.svg#map"></use></svg
+        ></span>
+        <div>
+          Open Map Creator<small>YOUR NEXT ADVENTURE STARTS HERE</small>
+        </div>
       </div>
-
-      <!-- Canvas Settings Panel -->
-      <div id="canvasSettings">
-        <h3>Canvas Settings</h3>
-        <label for="cellSize">Cell Size (16–256 px): </label>
-        <input type="range" id="cellSize" min="16" max="256" value="32" />
+      <div class="header-actions">
+        <span id="saveStatus" role="status">Saved locally</span
+        ><button id="undo" title="Undo (Ctrl+Z)">
+          <svg aria-hidden="true" class="icon" focusable="false">
+            <use href="assets/iconoir/sprite.svg#undo"></use>
+          </svg>
+          <span>Undo</span></button
+        ><button id="redo" title="Redo (Ctrl+Shift+Z)">
+          <svg aria-hidden="true" class="icon" focusable="false">
+            <use href="assets/iconoir/sprite.svg#redo"></use>
+          </svg>
+          <span>Redo</span></button
+        ><button
+          aria-label="Toggle dark mode"
+          id="themeToggle"
+          title="Toggle dark mode"
+        >
+          <svg aria-hidden="true" class="icon" focusable="false">
+            <use href="assets/iconoir/sprite.svg#half-moon"></use>
+          </svg></button
+        ><button class="primary" id="exportPDFPrimary">
+          <svg aria-hidden="true" class="icon" focusable="false">
+            <use href="assets/iconoir/sprite.svg#download"></use>
+          </svg>
+          Export PDF
+        </button>
       </div>
+    </header>
+    <nav aria-label="Drawing tools" id="toolbar">
+      <button data-instrument="select" title="Select (V)">
+        <svg aria-hidden="true" class="icon" focusable="false">
+          <use href="assets/iconoir/sprite.svg#cursor-pointer"></use></svg
+        >Select
+      </button>
+      <button data-instrument="gridDraw" title="Grid brush (G)">
+        <svg aria-hidden="true" class="icon" focusable="false">
+          <use href="assets/iconoir/sprite.svg#grid-plus"></use></svg
+        >Grid
+      </button>
+      <button data-instrument="freeDraw" title="Freehand brush (B)">
+        <svg aria-hidden="true" class="icon" focusable="false">
+          <use href="assets/iconoir/sprite.svg#edit-pencil"></use></svg
+        >Brush
+      </button>
+      <button data-instrument="erase" title="Eraser (E)">
+        <svg aria-hidden="true" class="icon" focusable="false">
+          <use href="assets/iconoir/sprite.svg#erase"></use></svg
+        >Erase
+      </button>
 
-      <div id="emptyCellSettings">
-        <h3>Empty Cell Appearance</h3>
-        <label for="emptyFillColor">Fill Color: </label>
-        <input id="emptyFillColor" type="color"/><br />
-        <label for="emptyBorderColor">Border Color: </label>
-        <input id="emptyBorderColor" type="color"/><br />
-        <label for="emptyPattern">Pattern Image: </label>
-        <input id="emptyPattern" type="file" accept="image/*" />
+      <button data-instrument="addObject" title="Place image object (O)">
+        <svg aria-hidden="true" class="icon" focusable="false">
+          <use href="assets/iconoir/sprite.svg#media-image"></use></svg
+        >Object
+      </button>
+      <button data-instrument="light" title="Place light source (L)">
+        <svg aria-hidden="true" class="icon" focusable="false">
+          <use href="assets/iconoir/sprite.svg#light-bulb"></use></svg
+        >Light
+      </button>
+      <button data-instrument="layers" title="Layers (K)">
+        <svg aria-hidden="true" class="icon" focusable="false">
+          <use href="assets/iconoir/sprite.svg#multiple-pages"></use></svg
+        >Layers
+      </button>
+    </nav>
+    <aside aria-label="Instrument settings" id="toolHud">
+      <div class="inspector-title">
+        <span id="inspectorToolTitle">GRID BRUSH</span>
       </div>
-
-      <!-- Appearance Effects Settings -->
-      <div id="appearanceSettings">
-        <h3>Appearance Effects</h3>
-
-        <!-- Grid Shadows -->
-        <h4>Grid Shadows</h4>
-        <label for="shadowsEnabled">Enable Shadows: </label>
-        <input type="checkbox" id="shadowsEnabled" /><br />
-
-        <!-- Angle Controls -->
-        <label for="shadowAngle">Angle:</label>
-        <input type="range" id="shadowAngle" min="0" max="360" value="45" style="vertical-align: middle;"/>
-        <input type="number" id="shadowAngleNumber" min="0" max="360" value="45" style="width: 50px; vertical-align: middle;"/><br/>
-
-        <!-- Offset Control (Unchanged) -->
-        <label for="shadowOffset">Offset (cells): </label>
-        <input
-          type="number"
-          id="shadowOffset"
-          min="0"
-          max="5"
-          step="0.1"
-          value="0.5"
-        /><br />
-
-        <!-- NEW Color + Alpha Controls -->
-        <label for="shadowColorRGB">Color (RGB): </label>
-        <input type="color" id="shadowColorRGB" value="#000000" /><br/>
-        <label for="shadowAlpha">Opacity:</label>
-        <input type="range" id="shadowAlpha" min="0" max="1" step="0.01" value="0.5" style="vertical-align: middle;"/>
-        <span id="shadowAlphaValue" style="vertical-align: middle; font-size: 0.9em;">0.50</span><br/>
-
-        <!-- Grid Borders (Unchanged) -->
-        <h4>Grid Borders</h4>
-        <!-- ... border controls remain the same ... -->
-        <label for="bordersEnabled">Enable Borders: </label>
-        <input type="checkbox" id="bordersEnabled" /><br />
-        <label for="borderPattern">Border Pattern: </label>
-        <input type="file" id="borderPattern" accept="image/*" /><br />
-        <img
-          id="borderPatternPreview"
-          src="#"
-          alt="Border Preview"
-          style="max-width: 50px; max-height: 50px; display: none;"
-        />
+      <div class="panel-scroll">
+        <section class="tab-panel" id="toolPanel">
+          <div id="instrumentSettings"></div>
+        </section>
+        <section class="tab-panel" hidden="" id="appearancePanel">
+          <section id="layerControls">
+            <div class="section-heading">
+              <h3>Layers</h3>
+              <button aria-label="Add layer" id="addLayer" title="Add layer">
+                <svg aria-hidden="true" class="icon" focusable="false">
+                  <use href="assets/iconoir/sprite.svg#plus"></use>
+                </svg>
+              </button>
+            </div>
+            <p class="hint">
+              Top of list = front of map. Edit the active layer.
+            </p>
+            <ul id="layerList"></ul>
+            <div class="layer-actions">
+              <button id="layerUp" title="Bring active layer forward">
+                <svg aria-hidden="true" class="icon" focusable="false">
+                  <use href="assets/iconoir/sprite.svg#arrow-up"></use>
+                </svg>
+                Forward</button
+              ><button id="layerDown" title="Send active layer backward">
+                <svg aria-hidden="true" class="icon" focusable="false">
+                  <use href="assets/iconoir/sprite.svg#arrow-down"></use>
+                </svg>
+                Back</button
+              ><button
+                aria-label="Delete active layer"
+                id="removeLayer"
+                title="Delete active layer"
+              >
+                <svg aria-hidden="true" class="icon" focusable="false">
+                  <use href="assets/iconoir/sprite.svg#trash"></use>
+                </svg>
+              </button>
+            </div>
+          </section>
+          <h3>Lighting</h3>
+          <p class="hint">
+            Global light, shadows, and border textures below apply to the active
+            layer.
+          </p>
+          <label class="field"
+            >Keep global lighting<input
+              id="preserveGlobalLight"
+              type="checkbox"
+          /></label>
+          <label class="field"
+            >Ambient brightness<input
+              id="ambientBrightness"
+              max="1"
+              min="0"
+              step="0.05"
+              type="range"
+              value="0.22"
+          /></label>
+          <label class="field"
+            >Ambient shade<input id="ambientColor" type="color" value="#091226"
+          /></label>
+          <details id="globalLightSettings">
+            <summary>Layer global light &amp; shadows</summary>
+            <label class="field"
+              >Enable global light<input
+                id="globalLightEnabled"
+                type="checkbox"
+            /></label>
+            <label class="field"
+              >Light color<input
+                id="globalLightColor"
+                type="color"
+                value="#fff4db"
+            /></label>
+            <label class="field"
+              >Intensity<input
+                id="globalLightIntensity"
+                max="2"
+                min="0"
+                step="0.05"
+                type="range"
+                value="1"
+            /></label>
+            <label class="field"
+              >Color strength<input
+                id="globalLightTint"
+                max="1"
+                min="0"
+                step="0.05"
+                type="range"
+                value="0.2"
+            /></label>
+            <label class="field"
+              >Direction (°)<input
+                id="globalLightAngle"
+                max="360"
+                min="0"
+                step="1"
+                type="number"
+                value="45"
+            /></label>
+            <label class="field"
+              >Shadow length (cells)<input
+                id="globalShadowLength"
+                max="5"
+                min="0"
+                step="0.1"
+                type="number"
+                value="0.5"
+            /></label>
+            <label class="field"
+              >Shadow color<input
+                id="globalShadowColor"
+                type="color"
+                value="#142039"
+            /></label>
+            <label class="field"
+              >Shadow opacity<input
+                id="globalShadowOpacity"
+                max="1"
+                min="0"
+                step="0.05"
+                type="range"
+                value="0.35"
+            /></label>
+            <label class="field"
+              >Softness (cells)<input
+                id="globalShadowSoftness"
+                max="0.3"
+                min="0"
+                step="0.01"
+                type="range"
+                value="0.04"
+            /></label>
+            <p class="hint">
+              One colored light for the whole map, even without local lights.
+              Direction sets where its shadows fall.
+            </p>
+          </details>
+          <p class="hint">
+            Keep the map's full brightness, or set the ambient light level for
+            scenes with local lights.
+          </p>
+          <div class="button-grid">
+            <button id="bakeLighting">
+              <svg aria-hidden="true" class="icon" focusable="false">
+                <use href="assets/iconoir/sprite.svg#floppy-disk"></use>
+              </svg>
+              Bake lighting</button
+            ><button id="liveLighting">
+              <svg aria-hidden="true" class="icon" focusable="false">
+                <use href="assets/iconoir/sprite.svg#refresh"></use>
+              </svg>
+              Use live lighting
+            </button>
+          </div>
+          <p class="hint lighting-status" role="status">Live lighting</p>
+          <hr />
+          <h3>Layer outer border texture</h3>
+          <p class="hint">
+            Pencil textures follow the active layer’s exterior contour. They
+            update after each stroke, stay out of enclosed interiors, and keep
+            their graphite color under lighting.
+          </p>
+          <label class="field"
+            >Enable texture<input id="bordersEnabled" type="checkbox"
+          /></label>
+          <label class="field"
+            >Pattern<select id="borderStyle">
+              <option value="hatch">Pencil hatching</option>
+              <option value="dots">Pencil stippling</option>
+              <option value="rocks">Rounded pencil rocks</option>
+              <option value="image">Uploaded edge + corner</option>
+            </select></label
+          >
+          <label class="field"
+            >Color<input id="borderColor" type="color" value="#40516a"
+          /></label>
+          <label class="field"
+            >Width (cells)<input
+              id="borderWidth"
+              max="1"
+              min="0.1"
+              step="0.05"
+              type="number"
+              value="0.75"
+          /></label>
+          <div id="hatchSettings">
+            <label class="field"
+              >Strokes per block<input
+                id="hatchStrokes"
+                max="12"
+                min="2"
+                step="1"
+                type="number"
+                value="9"
+            /></label>
+            <label class="field"
+              >Approximate stacks<input
+                id="hatchStacks"
+                max="6"
+                min="1"
+                step="1"
+                type="number"
+                value="2"
+            /></label>
+            <label class="field"
+              >Block density<input
+                id="hatchBlockDensity"
+                max="3"
+                min="0.3"
+                step="0.1"
+                type="range"
+                value="0.3"
+            /></label>
+            <label class="field"
+              >Layout randomness<input
+                id="hatchRandomness"
+                max="1"
+                min="0"
+                step="0.05"
+                type="range"
+                value="0.5"
+            /></label>
+            <label class="field"
+              >Layout angle (°)<input
+                id="hatchAngle"
+                max="180"
+                min="0"
+                step="1"
+                type="number"
+                value="25"
+            /></label>
+            <p class="hint">
+              Each block has straight, parallel strokes that meet neighboring
+              blocks. Strokes per block controls internal density; block density
+              controls how many blocks fill the border.
+            </p>
+          </div>
+          <button id="borderRegenerate">
+            <svg aria-hidden="true" class="icon" focusable="false">
+              <use href="assets/iconoir/sprite.svg#refresh"></use>
+            </svg>
+            New variation
+          </button>
+          <details id="customBorderSettings">
+            <summary>Upload edge + corner patterns</summary>
+            <p class="hint">
+              Use transparent PNGs or SVGs. Match the edge strip’s height to the
+              square corner’s size.
+            </p>
+            <ol class="upload-guide">
+              <li>
+                <strong>Edge:</strong> horizontal strip, dungeon along the
+                bottom, shading above. Make the left and right ends repeat
+                seamlessly.
+              </li>
+              <li>
+                <strong>Corner:</strong> square for an outside top-left turn.
+                The dungeon corner touches the image’s bottom-right point. Match
+                its right and bottom edges to the strip.
+              </li>
+              <li>
+                Upload both images. The editor repeats and rotates edges,
+                rotates outside corners, and mirrors inside corners. Border
+                width controls their size.
+              </li>
+            </ol>
+            <p class="hint">
+              Try or adapt the
+              <a download="" href="assets/border-patterns/edge-example.svg"
+                >edge example</a
+              >
+              and
+              <a download="" href="assets/border-patterns/corner-example.svg"
+                >corner example</a
+              >.
+            </p>
+            <label class="upload"
+              >Edge pattern image<input
+                accept="image/*"
+                id="borderPattern"
+                type="file"
+            /></label>
+            <img
+              alt="Edge pattern preview"
+              class="preview"
+              hidden=""
+              id="borderPatternPreview"
+            />
+            <label class="upload"
+              >Corner pattern image<input
+                accept="image/*"
+                id="borderCornerPattern"
+                type="file"
+            /></label>
+            <img
+              alt="Corner pattern preview"
+              class="preview"
+              hidden=""
+              id="borderCornerPatternPreview"
+            />
+            <p class="hint" id="borderUploadStatus" role="status">
+              Custom borders need both an edge image and a corner image.
+            </p>
+          </details>
+          <details>
+            <summary>Layer drop shadow</summary>
+            <p class="hint">A decorative shadow for the active layer.</p>
+            <label class="field"
+              >Enable<input id="shadowsEnabled" type="checkbox"
+            /></label>
+            <label class="field"
+              >Angle<input
+                id="shadowAngle"
+                max="360"
+                min="0"
+                type="range"
+                value="45" /></label
+            ><input
+              aria-label="Shadow angle in degrees"
+              id="shadowAngleNumber"
+              max="360"
+              min="0"
+              type="number"
+              value="45"
+            />
+            <label class="field"
+              >Offset (cells)<input
+                id="shadowOffset"
+                max="5"
+                min="0"
+                step="0.1"
+                type="number"
+                value="0.5"
+            /></label>
+            <label class="field"
+              >Color<input id="shadowColorRGB" type="color" value="#000000"
+            /></label>
+            <label class="field"
+              >Opacity<input
+                id="shadowAlpha"
+                max="1"
+                min="0"
+                step="0.01"
+                type="range"
+                value="0.5" /></label
+            ><span id="shadowAlphaValue">0.50</span>
+          </details>
+        </section>
       </div>
-
-      <!-- Instrument Settings -->
-      <div id="instrumentSettings">
-        <h3>Instrument Settings</h3>
-        <!-- Instrument‑specific controls will be loaded here -->
+    </aside>
+    <aside aria-label="Map settings" class="is-collapsed" id="hud">
+      <button
+        aria-controls="mapPanel"
+        aria-expanded="false"
+        class="inspector-title"
+        id="mapToggle"
+        title="Expand Map settings"
+      >
+        <span>MAP</span
+        ><svg aria-hidden="true" class="icon" focusable="false">
+          <use href="assets/iconoir/sprite.svg#plus"></use>
+        </svg>
+      </button>
+      <div class="panel-scroll" hidden="" id="mapContents">
+        <section class="tab-panel" id="mapPanel">
+          <div id="emptyCellSettings">
+            <label class="field"
+              >Background<input id="emptyFillColor" type="color" /></label
+            ><label class="field"
+              >Grid lines<input id="emptyBorderColor" type="color" /></label
+            ><label class="upload"
+              >Background texture<input
+                accept="image/*"
+                id="emptyPattern"
+                type="file"
+            /></label>
+          </div>
+          <div id="dataControls">
+            <h3>Project files</h3>
+            <p class="hint">
+              JSON keeps all layers, images, lighting, and settings editable.
+            </p>
+            <label class="field"
+              >Color mode<select id="exportColorMode">
+                <option value="color">Color</option>
+                <option value="grayscale">Grayscale · white background</option>
+                <option value="bw">Black &amp; white · white background</option>
+              </select></label
+            >
+            <label class="field"
+              >Padding (cells)<input
+                id="exportPadding"
+                type="number"
+                min="0"
+                max="10"
+                step="0.25"
+                value="1"
+            /></label>
+            <div class="button-grid">
+              <button id="exportPNG">
+                <svg aria-hidden="true" class="icon" focusable="false">
+                  <use href="assets/iconoir/sprite.svg#download"></use></svg
+                >Save PNG
+              </button>
+              <button id="exportMap">
+                <svg aria-hidden="true" class="icon" focusable="false">
+                  <use href="assets/iconoir/sprite.svg#download"></use>
+                </svg>
+                Save JSON</button
+              ><button id="importMap">
+                <svg aria-hidden="true" class="icon" focusable="false">
+                  <use href="assets/iconoir/sprite.svg#upload"></use>
+                </svg>
+                Open JSON</button
+              ><button id="exportPDF">
+                <svg aria-hidden="true" class="icon" focusable="false">
+                  <use href="assets/iconoir/sprite.svg#download"></use>
+                </svg>
+                Print PDF
+              </button>
+            </div>
+            <details>
+              <summary>Reset workspace</summary>
+              <button class="danger" id="clearCanvas">Clear artwork</button
+              ><button class="danger" id="restart">Reset everything</button>
+            </details>
+          </div>
+        </section>
       </div>
-
-      <!-- Layer Controls -->
-      <div id="layerControls">
-        <h3>Layers</h3>
-        <ul id="layerList"></ul>
-        <button id="addLayer">Add Layer</button>
-        <button id="removeLayer">Remove Selected Layer</button>
-      </div>
-
-      <!-- Export/Import/Restart Controls -->
-      <div id="dataControls">
-        <h3>Data</h3>
-        <button id="exportMap">Export Map (JSON)</button>
-        <button id="importMap">Import Map (JSON)</button>
-        <button id="exportPDF">Export to PDF</button>
-        <button id="clearCanvas">Clear Canvas</button>
-        <button id="restart">Restart</button>
-      </div>
-    </div>
-
-    <!-- Include jsPDF for PDF export -->
+    </aside>
+    <dialog aria-labelledby="pdfTitle" id="pdfDialog">
+      <form id="pdfForm">
+        <h3 id="pdfTitle">Print-ready PDF</h3>
+        <p class="hint">
+          The map is tiled across pages at your chosen physical cell size.
+        </p>
+        <label class="field"
+          >Orientation<select id="pdfOrientation">
+            <option value="landscape">Landscape</option>
+            <option value="portrait">Portrait</option>
+          </select></label
+        >
+        <label class="field"
+          >Paper<select id="pdfPaper">
+            <option>A4</option>
+            <option>A3</option>
+          </select></label
+        >
+        <label class="field"
+          >Resolution (DPI)<input
+            id="pdfDpi"
+            max="600"
+            min="36"
+            required=""
+            type="number"
+            value="150"
+        /></label>
+        <label class="field"
+          >Cell size (cm)<input
+            id="pdfCellSize"
+            max="10"
+            min="0.1"
+            required=""
+            step="0.1"
+            type="number"
+            value="2.5"
+        /></label>
+        <label class="field"
+          >Color mode<select id="pdfColorMode">
+            <option value="color">Color</option>
+            <option value="grayscale">Grayscale · white background</option>
+            <option value="bw">Black &amp; white · white background</option>
+          </select></label
+        >
+        <label class="field"
+          >Padding (cells)<input
+            id="pdfPadding"
+            type="number"
+            min="0"
+            max="10"
+            step="0.25"
+            value="1"
+        /></label>
+        <div class="dialog-actions">
+          <button id="pdfCancel" type="button">Cancel</button
+          ><button class="primary" type="submit">
+            <svg aria-hidden="true" class="icon" focusable="false">
+              <use href="assets/iconoir/sprite.svg#download"></use>
+            </svg>
+            Export PDF
+          </button>
+        </div>
+      </form>
+    </dialog>
+    <footer>
+      <span id="toolStatus">Grid brush</span
+      ><span>Scroll to zoom · Middle drag to pan · Ctrl Z to undo</span
+      ><button id="resetView" title="Reset zoom and pan">
+        <svg aria-hidden="true" class="icon" focusable="false">
+          <use href="assets/iconoir/sprite.svg#frame"></use>
+        </svg>
+        Reset view
+      </button>
+    </footer>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-
-    <!-- Main JS File -->
-    <script type="module" src="js/main.js"></script>
+    <script src="js/main.js" type="module"></script>
   </body>
 </html>

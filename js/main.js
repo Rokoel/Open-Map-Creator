@@ -1,14 +1,19 @@
 import { CanvasManager } from "./canvas.js";
 import { HUD } from "./hud.js";
 import { StorageManager } from "./storage.js";
+import { borderDefaults, lightDefaults, ambientDefaults } from "./scene.js";
+import { brushDefaults } from "./brush.js";
 import { constants } from "./constants.js";
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   const canvasEl = document.getElementById("mapCanvas");
+  canvasEl.style.pointerEvents = "none";
   const canvasManager = new CanvasManager(canvasEl);
   const storageManager = new StorageManager(canvasManager);
+  await storageManager.autoLoadMap();
   const hud = new HUD(canvasManager, storageManager);
-  storageManager.autoLoadMap();
+  canvasEl.style.pointerEvents = "auto";
+  window.appReady = true;
   // Ensure HUD reflects the state (either default or loaded)
   hud.updateLayerList();
   hud.updateAppearanceControls();
@@ -23,40 +28,61 @@ document.addEventListener("DOMContentLoaded", () => {
     .getElementById("importMap")
     .addEventListener("click", () => storageManager.importMap());
 
+  for (const id of ["exportPDF", "exportPDFPrimary"])
+    document.getElementById(id).addEventListener("click", () => {
+      document.getElementById("pdfColorMode").value =
+        canvasManager.exportSettings.colorMode;
+      document.getElementById("pdfPadding").value =
+        canvasManager.exportSettings.padding;
+      document.getElementById("pdfDialog").showModal();
+    });
+
   document
-    .getElementById("exportPDF")
-    .addEventListener("click", () => storageManager.exportPDF());
+    .getElementById("pdfCancel")
+    .addEventListener("click", () =>
+      document.getElementById("pdfDialog").close(),
+    );
+  document.getElementById("pdfForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    document.getElementById("pdfDialog").close();
+    storageManager.exportPDF({
+      orientation: document.getElementById("pdfOrientation").value,
+      paper: document.getElementById("pdfPaper").value,
+      dpi: document.getElementById("pdfDpi").value,
+      cellSize: document.getElementById("pdfCellSize").value,
+      colorMode: document.getElementById("pdfColorMode").value,
+      padding: document.getElementById("pdfPadding").value,
+    });
+  });
 
   document.getElementById("clearCanvas").addEventListener("click", () => {
-    if (
-      confirm(
-        "Are you sure you want to clear the canvas? This cannot be undone."
-      )
-    ) {
+    if (confirm("Clear artwork from all layers? You can undo this action.")) {
       canvasManager.clearCanvas();
       canvasManager.saveHistory();
     }
   });
 
-  document.getElementById("restart").addEventListener("click", () => {
+  document.getElementById("restart").addEventListener("click", async () => {
     if (
       confirm(
-        "Restarting will completely clear all data (layers, objects, settings, and saved progress). Continue?"
+        "Restarting will completely clear all data (layers, objects, settings, and saved progress). Continue?",
       )
     ) {
       // Clear Local Storage
-      localStorage.removeItem(constants.localStorageKey);
+      await storageManager.clearAutosave();
 
       // Reset Canvas Manager State
       canvasManager.clearCanvas();
 
       // Reset Layers
-      canvasManager.layers = [{
+      canvasManager.layers = [
+        {
           name: "Layer 1",
           objects: new Map(),
           visible: true,
-          gridShadowOptions: { ...constants.defaultGridShadowOptions }
-      }];
+          gridShadowOptions: { ...constants.defaultGridShadowOptions },
+        },
+      ];
       canvasManager.activeLayerIndex = 0;
 
       // Reset View
@@ -73,11 +99,12 @@ document.addEventListener("DOMContentLoaded", () => {
         patternSrc: null,
       };
       // Reset Global Border Options
-      canvasManager.gridBorderOptions = {
-        enabled: false,
-        image: null,
-        imageSrc: null,
-      };
+      canvasManager.gridBorderOptions = { ...borderDefaults };
+      canvasManager.lightSettings = { ...lightDefaults };
+      canvasManager.ambientLight = { ...ambientDefaults };
+      canvasManager.exportSettings = { colorMode: "color", padding: 1 };
+      canvasManager.bakedLighting = null;
+      canvasManager.bakeStatus = "Live lighting";
 
       // Reset Instrument-Specific Settings
       // Reset Grid Draw Settings
@@ -92,6 +119,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Reset Free Draw Settings
       canvasManager.freeDrawSettings = {
+        ...brushDefaults,
         period: 0,
         size: 1,
         fillColor: constants.defaultFreeFillColor,
@@ -105,7 +133,7 @@ document.addEventListener("DOMContentLoaded", () => {
       canvasManager.customObjectImageSrc = null;
 
       // Reset Active Instrument
-      canvasManager.setActiveInstrument('gridDraw');
+      canvasManager.setActiveInstrument("gridDraw");
 
       // Reset History & Selection
       canvasManager.history = [];
@@ -117,19 +145,23 @@ document.addEventListener("DOMContentLoaded", () => {
       canvasManager.saveHistory(); // Save the initial empty state
 
       // Update HUD to Reflect Defaults
-      if (window.hudInstance) { // Use global HUD instance
-          // Update layer list
-          window.hudInstance.updateLayerList();
-          // Update appearance controls (shadows, borders)
-          window.hudInstance.updateAppearanceControls();
-          // Update canvas settings controls
-          document.getElementById("cellSize").value = canvasManager.currentCellSize;
-          // Update empty cell controls
-          document.getElementById("emptyFillColor").value = canvasManager.emptyCellSettings.fillColor;
-          document.getElementById("emptyBorderColor").value = canvasManager.emptyCellSettings.borderColor;
-          document.getElementById("emptyPattern").value = ''; // Clear file input
-          // Reload instrument settings panel for the current (likely default) tool
-          window.hudInstance.loadInstrumentSettings(canvasManager.activeInstrument);
+      if (window.hudInstance) {
+        // Use global HUD instance
+        // Update layer list
+        window.hudInstance.updateLayerList();
+        // Update appearance controls (shadows, borders)
+        window.hudInstance.updateAppearanceControls();
+        // Update canvas settings controls
+        // Update empty cell controls
+        document.getElementById("emptyFillColor").value =
+          canvasManager.emptyCellSettings.fillColor;
+        document.getElementById("emptyBorderColor").value =
+          canvasManager.emptyCellSettings.borderColor;
+        document.getElementById("emptyPattern").value = ""; // Clear file input
+        // Reload instrument settings panel for the current (likely default) tool
+        window.hudInstance.loadInstrumentSettings(
+          canvasManager.activeInstrument,
+        );
       }
 
       // Re-render the cleared canvas
@@ -141,16 +173,31 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Keyboard Shortcuts
   document.addEventListener("keydown", (e) => {
-    // Allow input fields to work normally
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
-        // Allow Ctrl+Z/Shift+Z even in inputs if needed, otherwise return
-        if (!((e.key === 'Z' || e.key === 'z') && (e.ctrlKey || e.metaKey))) {
-            return;
-        }
-    }
+    if (e.isComposing) return;
+    const editingText = e.target.closest(
+      'textarea, [contenteditable="true"], input[type="text"], input:not([type])',
+    );
+    if (editingText) return;
+    const historyKey = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z";
+    if (!historyKey && e.target.closest("input, select")) return;
 
+    if (
+      (e.ctrlKey || e.metaKey) &&
+      e.key.toLowerCase() === "g" &&
+      canvasManager.activeInstrument === "select"
+    ) {
+      e.preventDefault();
+      e.shiftKey
+        ? canvasManager.ungroupSelection()
+        : canvasManager.groupSelection();
+      return;
+    }
     // Undo (Ctrl+Z or Cmd+Z)
-    if ((e.key === "Z" || e.key === "z") && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
+    if (
+      (e.key === "Z" || e.key === "z") &&
+      (e.ctrlKey || e.metaKey) &&
+      !e.shiftKey
+    ) {
       e.preventDefault(); // Prevent browser undo
       e.stopImmediatePropagation();
       canvasManager.undo();
@@ -158,7 +205,11 @@ document.addEventListener("DOMContentLoaded", () => {
       hud.updateLayerList();
     }
     // Redo (Ctrl+Shift+Z or Cmd+Shift+Z)
-    else if ((e.key === "Z" || e.key === "z") && (e.ctrlKey || e.metaKey) && e.shiftKey) {
+    else if (
+      (e.key === "Z" || e.key === "z") &&
+      (e.ctrlKey || e.metaKey) &&
+      e.shiftKey
+    ) {
       e.preventDefault(); // Prevent browser redo
       e.stopImmediatePropagation();
       canvasManager.redo();
@@ -168,31 +219,39 @@ document.addEventListener("DOMContentLoaded", () => {
     // Delete selected (Delete or Backspace)
     else if (e.key === "Delete" || e.key === "Backspace") {
       // Check if focus is not on an input field where backspace should work
-      if (document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
-          if (canvasManager.activeInstrument === "select" &&
-              (canvasManager.selectedObjects.grid.length > 0 ||
-               canvasManager.selectedObjects.free.length > 0 ||
-               canvasManager.selectedObjects.custom.length > 0))
-          {
-              e.preventDefault(); // Prevent browser back navigation
-              canvasManager.deleteSelection();
-          }
+      if (
+        document.activeElement.tagName !== "INPUT" &&
+        document.activeElement.tagName !== "TEXTAREA"
+      ) {
+        if (
+          canvasManager.activeInstrument === "select" &&
+          (canvasManager.selectedObjects.grid.length > 0 ||
+            canvasManager.selectedObjects.free.length > 0 ||
+            canvasManager.selectedObjects.custom.length > 0)
+        ) {
+          e.preventDefault(); // Prevent browser back navigation
+          canvasManager.deleteSelection();
+        }
       }
     }
     // Copy (Ctrl+C or Cmd+C)
     else if ((e.ctrlKey || e.metaKey) && (e.key === "c" || e.key === "C")) {
-      if (canvasManager.activeInstrument === "select" &&
-          (canvasManager.selectedObjects.grid.length > 0 ||
-           canvasManager.selectedObjects.free.length > 0 ||
-           canvasManager.selectedObjects.custom.length > 0))
-      {
+      if (
+        canvasManager.activeInstrument === "select" &&
+        (canvasManager.selectedObjects.grid.length > 0 ||
+          canvasManager.selectedObjects.free.length > 0 ||
+          canvasManager.selectedObjects.custom.length > 0)
+      ) {
         e.preventDefault();
         canvasManager.copySelection();
       }
     }
     // Paste (Ctrl+V or Cmd+V)
     else if ((e.ctrlKey || e.metaKey) && (e.key === "v" || e.key === "V")) {
-      if (canvasManager.activeInstrument === "select" && canvasManager.copiedSelection) {
+      if (
+        canvasManager.activeInstrument === "select" &&
+        canvasManager.copiedSelection
+      ) {
         e.preventDefault();
         canvasManager.pasteSelection();
       }
@@ -202,10 +261,15 @@ document.addEventListener("DOMContentLoaded", () => {
   // Auto-Save
   setInterval(() => {
     storageManager.autoSaveMap();
+    hud.updateLayerList();
   }, constants.autoSaveInterval);
 
-  // Also auto-save before page unload
-  window.addEventListener("beforeunload", () => {
-    storageManager.autoSaveMap();
+  // Commit while the page is still alive; unload-time async writes are not reliable.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden")
+      storageManager.autoSaveMap({ backup: true });
   });
+  window.addEventListener("pagehide", () =>
+    storageManager.autoSaveMap({ backup: true }),
+  );
 });

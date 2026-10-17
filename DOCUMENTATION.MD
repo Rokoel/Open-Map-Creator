@@ -1,3 +1,5 @@
+> **Open Map Creator v1.4.0 update:** The current interface, procedural border textures, layer-aware objects, transform handles, and lighting controls are described in [README usage](README.MD#usage). The detailed reference below describes the earlier interface; its separate PDF/border rendering methods have been replaced by the shared `js/scene.js` renderer.
+
 > This document contains the project's documentation. Its purpose is to help clarify the code structure and provide a high-level overview. For your convenience when viewing on GitHub, a table of contents is automatically generated from the headings in `.md` files; look for the list icon near the top of the page.
 
 

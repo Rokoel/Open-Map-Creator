@@ -1,3 +1,17 @@
+import { contains, localPoint, corners, gridEdges } from "./geometry.js";
+import { brushDefaults, svgFromDataUrl, loadBrushImage } from "./brush.js";
+import { tileDefaults, tileVariation } from "./tiles.js";
+import { buildBorderTopology } from "./borders.js";
+import {
+  drawScene,
+  borderDefaults,
+  lightDefaults,
+  ambientDefaults,
+  globalLightDefaults,
+  bakeLighting,
+  invalidateLightingBake,
+  lightingSignature,
+} from "./scene.js";
 import { constants } from "./constants.js";
 
 export class CanvasManager {
@@ -30,14 +44,13 @@ export class CanvasManager {
 
     this.activeInstrument = "gridDraw";
 
-
     this.layers = [];
     this.layers.push({
       name: "Layer 1",
       objects: new Map(),
-      
+
       gridShadowOptions: { ...constants.defaultGridShadowOptions },
-      visible: true, // Currently not used, preparation for future layer management
+      visible: true,
     });
     this.activeLayerIndex = 0;
 
@@ -56,13 +69,14 @@ export class CanvasManager {
       patternSrc: null,
     };
 
-    this.gridBorderOptions = {
-      enabled: false,
-      image: null,
-      imageSrc: null,
-    };
+    this.gridBorderOptions = { ...borderDefaults };
+    this.lightSettings = { ...lightDefaults };
+    this.ambientLight = { ...ambientDefaults };
+    this.bakedLighting = null;
+    this.exportSettings = { colorMode: "color", padding: 1 };
 
     this.freeDrawSettings = {
+      ...brushDefaults,
       period: 0,
       size: 1,
       fillColor: constants.defaultFreeFillColor,
@@ -72,6 +86,7 @@ export class CanvasManager {
     };
 
     this.gridDrawSettings = {
+      ...tileDefaults,
       type: "color",
       fillColor: constants.defaultGridDrawFillColor,
       borderColor: constants.defaultGridDrawBorderColor,
@@ -96,107 +111,130 @@ export class CanvasManager {
     this.render();
   }
 
-
   /**
    * Saves the current state of the canvas to the history stack.
    * The state includes layers, free draw objects, custom objects, and various settings.
    * Ensures that the history stack does not exceed the defined limit.
    * If the history pointer is not at the end, truncates and redoes the branch before saving.
-   * 
+   *
    * State Details:
    * - Layers: Includes layer name, visibility, grid shadow options, and objects.
    * - Free Draw Objects: Includes object properties and image sources.
    * - Custom Objects: Includes object properties and image sources.
    * - Settings: Includes cell size, offsets, scale, active layer index, empty cell settings,
    *   grid border options, grid image list, grid draw settings, free draw settings, and custom object image sources.
-   * 
+   *
    * History Management:
    * - Stores the state as a JSON string in the history stack.
    * - Maintains a pointer to the current position in the history stack.
    * - Removes the oldest entry if the history stack exceeds the defined limit.
    */
+  get gridBorderOptions() {
+    const layer = this.layers[this.activeLayerIndex] || this.layers[0];
+    return (layer.gridBorderOptions ||= { ...borderDefaults });
+  }
+  set gridBorderOptions(value) {
+    const layer = this.layers[this.activeLayerIndex] || this.layers[0];
+    layer.gridBorderOptions = { ...borderDefaults, ...value };
+  }
+  get globalLight() {
+    const layer = this.layers[this.activeLayerIndex] || this.layers[0];
+    return (layer.globalLight ||= { ...globalLightDefaults });
+  }
+  rebuildBorderTopology() {
+    for (const layer of this.layers)
+      layer.borderTopology = buildBorderTopology([layer]);
+    this.borderTopology = buildBorderTopology(this.layers);
+    this.borderTopologyBuilds = (this.borderTopologyBuilds || 0) + 1;
+  }
+
+  getTileImage(src) {
+    this.tileImages ||= new Map();
+    if (!src) return null;
+    if (!this.tileImages.has(src)) {
+      const image = new Image();
+      image.onload = () => this.render();
+      image.src = src;
+      this.tileImages.set(src, image);
+    }
+    return this.tileImages.get(src);
+  }
+  setBrushSize(value) {
+    this.freeDrawSettings.size =
+      Math.round(Math.max(0.1, Math.min(30, value)) * 10) / 10;
+    this.brushPreviewUntil = performance.now() + 1000;
+    clearTimeout(this.brushPreviewTimer);
+    this.brushPreviewTimer = setTimeout(() => this.render(), 1050);
+    const slider = document.querySelector(
+      '[aria-label="Size baseline (cells)"]',
+    );
+    if (slider) {
+      slider.value = this.freeDrawSettings.size;
+      slider.title = `${this.freeDrawSettings.size} cells`;
+    }
+    this.render();
+  }
+  async updateBrushImage(source) {
+    const settings = this.freeDrawSettings;
+    if (source) {
+      settings.sourceImageSrc = source;
+      settings.svgSource = svgFromDataUrl(source);
+    }
+    const request = (this.brushImageRequest =
+      (this.brushImageRequest || 0) + 1);
+    try {
+      const image = await loadBrushImage(settings, (image) => {
+        settings.image = image;
+      });
+      if (
+        request === this.brushImageRequest &&
+        settings === this.freeDrawSettings
+      ) {
+        settings.image = image;
+        this.render();
+      }
+      return image;
+    } catch (error) {
+      console.error(error);
+      return null;
+    }
+  }
+
+  bakeLighting() {
+    return bakeLighting(this);
+  }
+
+  historyContent(state) {
+    const copy = { ...state, settings: { ...state.settings } };
+    for (const key of ["offsetX", "offsetY", "scale", "activeLayerIndex"])
+      delete copy.settings[key];
+    return JSON.stringify(copy);
+  }
+
   saveHistory() {
-    const state = {
-      layers: this.layers.map((layer) => ({
-        name: layer.name,
-        visible: layer.visible !== undefined ? layer.visible : true, // Save visibility
-        gridShadowOptions: layer.gridShadowOptions
-          ? { ...layer.gridShadowOptions } // Copy options if present
-          : { ...constants.defaultGridShadowOptions }, // Fallback to defaults if missing
-        objects: Array.from(layer.objects.entries()).map(([key, cell]) => {
-          let cellCopy = { ...cell };
-          // Use stored imageSrc if available
-          if (cellCopy.imageSrc) {
-            cellCopy.image = cellCopy.imageSrc; // Save src string
-          } else {
-            delete cellCopy.image; // Ensure no Image object is saved
-            delete cellCopy.imageSrc; // Clean up if inconsistent
-          }
-          return [key, cellCopy];
-        }),
-      })),
-      freeDrawObjects: Array.from(this.freeDrawObjects.entries()).map(
-        ([id, obj]) => {
-          let copyObj = { ...obj };
-          if (copyObj.image && copyObj.image.src) {
-            copyObj.image = copyObj.image.src;
-          } else {
-            delete copyObj.image;
-          }
-          return [id, copyObj];
-        }
-      ),
-      customObjects: Array.from(this.customObjects.entries()).map(
-        ([id, obj]) => {
-          let copyObj = { ...obj };
-          // Use stored imageSrc if available
-          if (copyObj.imageSrc) {
-            copyObj.image = copyObj.imageSrc;
-          } else {
-            delete copyObj.image;
-            delete copyObj.imageSrc;
-          }
-          return [id, copyObj];
-        }
-      ),
-      settings: {
-        currentCellSize: this.currentCellSize,
-        offsetX: this.offsetX,
-        offsetY: this.offsetY,
-        scale: this.scale,
-        activeLayerIndex: this.activeLayerIndex,
-        emptyCellSettings: {
-          ...this.emptyCellSettings,
-          pattern: this.emptyCellSettings.patternSrc,
-        },
-        gridBorderOptions: {
-          ...this.gridBorderOptions,
-          image: this.gridBorderOptions.imageSrc,
-        },
-        gridImageList: this.gridImageList, // Save the list of srcs
-        gridDrawSettings: {
-          ...this.gridDrawSettings,
-          image: this.gridDrawSettings.imageSrc,
-        },
-        freeDrawSettings: {
-          ...this.freeDrawSettings,
-          image: this.freeDrawSettings.image?.src || null,
-        },
-        customObjectImageSrc: this.customObjectImageSrc,
-      },
-    };
+    const state = this.getMapData();
+    if (
+      this.history[this.historyIndex] &&
+      this.historyContent(state) ===
+        this.historyContent(JSON.parse(this.history[this.historyIndex]))
+    )
+      return;
+    this.rebuildBorderTopology();
+    invalidateLightingBake(this);
+    const status = document.getElementById("saveStatus");
+    if (status && window.hudInstance) status.textContent = "Unsaved changes";
     // If history pointer isn’t at the end, truncate the redo branch
     this.history = this.history.slice(0, this.historyIndex + 1);
     this.history.push(JSON.stringify(state)); // Store as JSON string
     this.historyIndex++;
+    this.storageManager?.scheduleSave();
 
     // Limit history size
     if (this.history.length > constants.historyLimit) {
-        this.history.shift(); // Remove oldest entry
-        this.historyIndex--; // Adjust index
+      this.history.shift(); // Remove oldest entry
+      this.historyIndex--; // Adjust index
     }
   }
-
 
   /**
    * Loads the application state from the provided state object.
@@ -207,18 +245,36 @@ export class CanvasManager {
    * @param {Object} state - The state object to load.
    */
   loadStateData(state) {
+    this.isDrawing = this.isSelecting = this.isMovingSelection = false;
+    this.transformDrag = this.selectionStart = this.selectionEnd = null;
+    this.selectionBase = null;
     this.layers = state.layers.map((layerData) => {
       let newLayer = {
         name: layerData.name || "Unnamed Layer",
         visible: layerData.visible !== undefined ? layerData.visible : true,
         gridShadowOptions: {
-            ...constants.defaultGridShadowOptions, // Start with defaults
-            ...(layerData.gridShadowOptions || {}) // Override with loaded data if present
+          ...constants.defaultGridShadowOptions, // Start with defaults
+          ...(layerData.gridShadowOptions || {}), // Override with loaded data if present
+        },
+        globalLight: Object.fromEntries(
+          Object.keys(globalLightDefaults).map((key) => [
+            key,
+            (layerData.globalLight || state.settings?.ambientLight)?.[key] ??
+              globalLightDefaults[key],
+          ]),
+        ),
+        gridBorderOptions: {
+          ...borderDefaults,
+          ...(layerData.gridBorderOptions || state.settings?.gridBorderOptions),
         },
         objects: new Map(
           (layerData.objects || []).map(([key, cell]) => {
             // Recreate Image objects from src
-            if (cell.type === "image" && cell.image && typeof cell.image === "string") {
+            if (
+              cell.type === "image" &&
+              cell.image &&
+              typeof cell.image === "string"
+            ) {
               let img = new Image();
               img.src = cell.image;
               cell.imageSrc = cell.image; // Store src back
@@ -226,23 +282,24 @@ export class CanvasManager {
               // TODO: Add onload/onerror handlers if needed for robustness during load
               img.onload = () => this.render(); // Re-render when images load
             } else {
-                cell.image = null; // Ensure no broken image refs
-                cell.imageSrc = null;
+              cell.image = null; // Ensure no broken image refs
+              cell.imageSrc = null;
             }
             return [key, cell];
-          })
+          }),
         ),
       };
       return newLayer;
     });
     // Ensure at least one layer exists
     if (this.layers.length === 0) {
-        this.layers.push({
-            name: "Layer 1", objects: new Map(), visible: true,
-            gridShadowOptions: { ...constants.defaultGridShadowOptions }
-        });
+      this.layers.push({
+        name: "Layer 1",
+        objects: new Map(),
+        visible: true,
+        gridShadowOptions: { ...constants.defaultGridShadowOptions },
+      });
     }
-
 
     // Load rest of state (freeDraw, customObjects, settings)
     this.freeDrawObjects = new Map(
@@ -253,10 +310,10 @@ export class CanvasManager {
           obj.image = img;
           img.onload = () => this.render();
         } else {
-            obj.image = null;
+          obj.image = null;
         }
         return [id, obj];
-      })
+      }),
     );
     this.customObjects = new Map(
       (state.customObjects || []).map(([id, obj]) => {
@@ -267,94 +324,168 @@ export class CanvasManager {
           obj.image = img;
           img.onload = () => this.render();
         } else {
-            obj.image = null;
-            obj.imageSrc = null;
+          obj.image = null;
+          obj.imageSrc = null;
         }
         return [id, obj];
-      })
+      }),
     );
 
     // Load settings
     if (state.settings) {
-        this.currentCellSize = state.settings.currentCellSize || constants.baseCellSize;
-        this.offsetX = state.settings.offsetX || 0;
-        this.offsetY = state.settings.offsetY || 0;
-        this.scale = state.settings.scale || 1;
-        this.activeLayerIndex = state.settings.activeLayerIndex || 0;
-        // Ensure activeLayerIndex is valid
-        if (this.activeLayerIndex >= this.layers.length || this.activeLayerIndex < 0) {
-            this.activeLayerIndex = 0;
-        }
+      this.currentCellSize =
+        state.settings.currentCellSize || constants.baseCellSize;
+      this.offsetX = state.settings.offsetX || 0;
+      this.offsetY = state.settings.offsetY || 0;
+      this.scale = state.settings.scale || 1;
+      this.activeLayerIndex = state.settings.activeLayerIndex || 0;
+      // Ensure activeLayerIndex is valid
+      if (
+        this.activeLayerIndex >= this.layers.length ||
+        this.activeLayerIndex < 0
+      ) {
+        this.activeLayerIndex = 0;
+      }
 
-        // Empty Cell Settings
-        this.emptyCellSettings = state.settings.emptyCellSettings || this.emptyCellSettings;
-        if (this.emptyCellSettings.pattern && typeof this.emptyCellSettings.pattern === "string") {
-          let img = new Image();
-          img.src = this.emptyCellSettings.pattern;
-          this.emptyCellSettings.patternSrc = this.emptyCellSettings.pattern;
-          this.emptyCellSettings.pattern = img;
-          img.onload = () => this.render();
-        } else {
-          this.emptyCellSettings.pattern = null;
-          this.emptyCellSettings.patternSrc = null;
-        }
+      // Empty Cell Settings
+      this.emptyCellSettings =
+        state.settings.emptyCellSettings || this.emptyCellSettings;
+      if (
+        this.emptyCellSettings.pattern &&
+        typeof this.emptyCellSettings.pattern === "string"
+      ) {
+        let img = new Image();
+        img.src = this.emptyCellSettings.pattern;
+        this.emptyCellSettings.patternSrc = this.emptyCellSettings.pattern;
+        this.emptyCellSettings.pattern = img;
+        img.onload = () => this.render();
+      } else {
+        this.emptyCellSettings.pattern = null;
+        this.emptyCellSettings.patternSrc = null;
+      }
 
-        // Grid Border Options
-        this.gridBorderOptions = state.settings.gridBorderOptions || this.gridBorderOptions;
-        if (this.gridBorderOptions.image && typeof this.gridBorderOptions.image === "string") {
-          let img = new Image();
-          img.src = this.gridBorderOptions.image;
-          this.gridBorderOptions.imageSrc = this.gridBorderOptions.image;
-          this.gridBorderOptions.image = img;
-          img.onload = () => this.render();
-        } else {
-          this.gridBorderOptions.image = null;
-          this.gridBorderOptions.imageSrc = null;
-        }
+      // Grid Draw Image List & Settings
+      this.gridImageList = state.settings.gridImageList || [];
+      this.gridDrawSettings = {
+        ...tileDefaults,
+        ...(state.settings.gridDrawSettings || this.gridDrawSettings),
+      };
+      if (
+        this.gridDrawSettings.image &&
+        typeof this.gridDrawSettings.image === "string"
+      ) {
+        let img = new Image();
+        img.src = this.gridDrawSettings.image;
+        this.gridDrawSettings.imageSrc = this.gridDrawSettings.image;
+        this.gridDrawSettings.image = img;
+        img.onload = () => this.render();
+      } else {
+        this.gridDrawSettings.image = null;
+        this.gridDrawSettings.imageSrc = null;
+      }
 
-        // Grid Draw Image List & Settings
-        this.gridImageList = state.settings.gridImageList || [];
-        this.gridDrawSettings = state.settings.gridDrawSettings || this.gridDrawSettings;
-        if (this.gridDrawSettings.image && typeof this.gridDrawSettings.image === "string") {
-            let img = new Image();
-            img.src = this.gridDrawSettings.image;
-            this.gridDrawSettings.imageSrc = this.gridDrawSettings.image;
-            this.gridDrawSettings.image = img;
-            img.onload = () => this.render();
-        } else {
-            this.gridDrawSettings.image = null;
-            this.gridDrawSettings.imageSrc = null;
-        }
+      // Free Draw Settings Image
+      this.freeDrawSettings = {
+        ...brushDefaults,
+        ...(state.settings.freeDrawSettings || this.freeDrawSettings),
+      };
+      if (
+        !this.freeDrawSettings.sourceImageSrc &&
+        typeof this.freeDrawSettings.image === "string"
+      ) {
+        this.freeDrawSettings.sourceImageSrc = this.freeDrawSettings.image;
+        this.freeDrawSettings.svgSource ||= svgFromDataUrl(
+          this.freeDrawSettings.image,
+        );
+      }
+      if (
+        this.freeDrawSettings.image &&
+        typeof this.freeDrawSettings.image === "string"
+      ) {
+        let img = new Image();
+        img.src = this.freeDrawSettings.image;
+        this.freeDrawSettings.image = img;
+        img.onload = () => this.render();
+      } else {
+        this.freeDrawSettings.image = null;
+      }
 
-        // Free Draw Settings Image
-        this.freeDrawSettings = state.settings.freeDrawSettings || this.freeDrawSettings;
-        if (this.freeDrawSettings.image && typeof this.freeDrawSettings.image === "string") {
-            let img = new Image();
-            img.src = this.freeDrawSettings.image;
-            this.freeDrawSettings.image = img;
-            img.onload = () => this.render();
-        } else {
-            this.freeDrawSettings.image = null;
-        }
+      if (
+        this.freeDrawSettings.svgSource ||
+        this.freeDrawSettings.sourceImageSrc
+      )
+        this.updateBrushImage();
 
-        // Add Object Image
-        this.customObjectImageSrc = state.settings.customObjectImageSrc || null;
-        if (this.customObjectImageSrc) {
-            let img = new Image();
-            img.src = this.customObjectImageSrc;
-            this.customObjectImage = img;
-            // No immediate render needed for this one
-        } else {
-            this.customObjectImage = null;
-        }
+      // Add Object Image
+      this.customObjectImageSrc = state.settings.customObjectImageSrc || null;
+      if (this.customObjectImageSrc) {
+        let img = new Image();
+        img.src = this.customObjectImageSrc;
+        this.customObjectImage = img;
+        // No immediate render needed for this one
+      } else {
+        this.customObjectImage = null;
+      }
     }
 
+    for (const layer of this.layers) {
+      layer.gridBorderOptions = {
+        ...borderDefaults,
+        ...layer.gridBorderOptions,
+      };
+      for (const [imageKey, srcKey] of [
+        ["image", "imageSrc"],
+        ["cornerImage", "cornerImageSrc"],
+      ]) {
+        const src =
+          layer.gridBorderOptions[srcKey] || layer.gridBorderOptions[imageKey];
+        if (typeof src === "string" && src) {
+          const image = new Image();
+          image.onload = () => this.render();
+          image.src = src;
+          layer.gridBorderOptions[imageKey] = image;
+          layer.gridBorderOptions[srcKey] = src;
+        } else {
+          layer.gridBorderOptions[imageKey] = null;
+          layer.gridBorderOptions[srcKey] = null;
+        }
+      }
+    }
+    this.ambientLight = { ...ambientDefaults, ...state.settings?.ambientLight };
+    this.exportSettings = {
+      colorMode: "color",
+      padding: 1,
+      ...state.settings?.exportSettings,
+    };
+    this.bakedLighting = null;
+    this.bakeStatus = "Live lighting";
+    this.rebuildBorderTopology();
+    this.lightSettings = {
+      ...lightDefaults,
+      ...(state.settings?.lightSettings || {}),
+    };
+    // Legacy global objects migrate to the first layer, preserving their relative order.
+    for (const objects of [this.freeDrawObjects, this.customObjects])
+      for (const obj of objects.values()) {
+        obj.layerIndex =
+          obj.layerIndex !== undefined &&
+          obj.layerIndex !== null &&
+          Number.isInteger(Number(obj.layerIndex))
+            ? Math.max(
+                0,
+                Math.min(this.layers.length - 1, Number(obj.layerIndex)),
+              )
+            : 0;
+        obj.rotation = obj.rotation || 0;
+        if (obj.type === "light")
+          Object.assign(obj, { ...lightDefaults, ...obj });
+      }
+    this.transformDrag = null;
     // Clear selection (we might not need to do that)
     this.selectedObjects = { grid: [], free: [], custom: [] };
     this.selectionStart = null;
     this.selectionEnd = null;
   }
-
 
   /**
    * Loads a history state from a JSON string, parses it, and applies the state to the canvas.
@@ -365,11 +496,26 @@ export class CanvasManager {
    */
   loadHistoryState(stateString) {
     try {
-        const state = JSON.parse(stateString);
-        this.loadStateData(state);
-        this.render();
+      const state = JSON.parse(stateString);
+      const view = {
+        offsetX: this.offsetX,
+        offsetY: this.offsetY,
+        scale: this.scale,
+      };
+      const bake = this.bakedLighting,
+        bakeStatus = this.bakeStatus;
+      this.loadStateData(state);
+      if (bake && bake.signature === lightingSignature(this)) {
+        this.bakedLighting = bake;
+        this.bakeStatus = bakeStatus;
+      }
+      Object.assign(this, view);
+      this.history[this.historyIndex] = JSON.stringify(this.getMapData());
+      window.hudInstance?.refresh();
+      this.storageManager?.scheduleSave();
+      this.render();
     } catch (e) {
-        console.error("Error parsing history state:", e);
+      console.error("Error parsing history state:", e);
     }
   }
 
@@ -377,6 +523,7 @@ export class CanvasManager {
    * Undoes the last action by loading the previous state from history.
    */
   undo() {
+    this.saveHistory();
     if (this.historyIndex > 0) {
       this.historyIndex--;
       this.loadHistoryState(this.history[this.historyIndex]);
@@ -387,6 +534,7 @@ export class CanvasManager {
    * Redoes the last undone action by loading the next state from history.
    */
   redo() {
+    this.saveHistory();
     if (this.historyIndex < this.history.length - 1) {
       this.historyIndex++;
       this.loadHistoryState(this.history[this.historyIndex]);
@@ -399,6 +547,15 @@ export class CanvasManager {
    */
   updateCellSize(newSize) {
     // TODO: Adjust view to keep center point stable during cell size change
+    const ratio = newSize / this.currentCellSize;
+    for (const objects of [this.freeDrawObjects, this.customObjects])
+      for (const obj of objects.values()) {
+        obj.x *= ratio;
+        obj.y *= ratio;
+        if (obj.size) obj.size *= ratio;
+        if (obj.width) obj.width *= ratio;
+        if (obj.height) obj.height *= ratio;
+      }
     this.currentCellSize = newSize;
     this.render();
     // No history save here, assumed to be part of other actions or implicit
@@ -446,7 +603,7 @@ export class CanvasManager {
   /**
    * Converts world coordinates to screen coordinates based on the current
    * canvas offset and scale.
-   * 
+   *
    * @param {number} worldX - The x-coordinate in the world.
    * @param {number} worldY - The y-coordinate in the world.
    * @returns {{x: number, y: number}} An object containing the corresponding
@@ -461,7 +618,7 @@ export class CanvasManager {
 
   /**
    * Sets up event listeners for the canvas element to handle various user interactions.
-   * 
+   *
    * - Handles zooming with the mouse wheel, including clamping the zoom scale and adjusting offsets
    *   to keep the zoom centered on the mouse position.
    * - Handles mouse events for drawing, panning, and selection:
@@ -471,7 +628,7 @@ export class CanvasManager {
    * - Handles mouse movement for updating drawing, panning, and selection actions in real-time.
    * - Handles mouse release to finalize actions such as drawing, selection, or panning.
    * - Prevents the default context menu from appearing on right-click.
-   * 
+   *
    * @listens wheel - Handles zooming in and out with the mouse wheel.
    * @listens mousedown - Handles initiating drawing, panning, or selection based on the mouse button.
    * @listens mousemove - Handles updating drawing, panning, or selection actions in real-time.
@@ -480,33 +637,98 @@ export class CanvasManager {
    */
   setupEventListeners() {
     // Zooming with the mouse wheel
-    this.canvas.addEventListener("wheel", (event) => {
-      event.preventDefault();
-      const zoomIntensity = 0.001;
-      let zoomAmount = -event.deltaY * zoomIntensity; // Inverted for natural zooming
+    this.canvas.addEventListener(
+      "wheel",
+      (event) => {
+        event.preventDefault();
+        if (event.altKey && this.activeInstrument === "freeDraw") {
+          const rect = this.canvas.getBoundingClientRect(),
+            point = this.screenToWorld(
+              event.clientX - rect.left,
+              event.clientY - rect.top,
+            );
+          this.mouseX = point.x;
+          this.mouseY = point.y;
+          this.mouseOverCanvas = true;
+          this.setBrushSize(
+            this.freeDrawSettings.size +
+              Math.sign(-event.deltaY) *
+                Math.max(
+                  0.1,
+                  this.freeDrawSettings.size *
+                    (Math.exp(Math.min(1000, Math.abs(event.deltaY)) * 0.002) -
+                      1),
+                ),
+          );
+          clearTimeout(this.brushSizeCommitTimer);
+          this.brushSizeCommitTimer = setTimeout(() => this.saveHistory(), 180);
+          return;
+        }
+        const zoomIntensity = 0.001;
+        let zoomAmount = -event.deltaY * zoomIntensity; // Inverted for natural zooming
 
-      const newScale = this.scale * (1 + zoomAmount);
-      // Clamp scale
-      const minScale = 0.1;
-      const maxScale = 10;
-      if (newScale < minScale || newScale > maxScale) return;
+        const newScale = this.scale * (1 + zoomAmount);
+        // Clamp scale
+        const minScale = 0.1;
+        const maxScale = 10;
+        if (newScale < minScale || newScale > maxScale) return;
 
-      const rect = this.canvas.getBoundingClientRect();
-      const mouseX = event.clientX - rect.left;
-      const mouseY = event.clientY - rect.top;
+        const rect = this.canvas.getBoundingClientRect();
+        const mouseX = event.clientX - rect.left;
+        const mouseY = event.clientY - rect.top;
 
-      // Get world coordinates before zoom
-      const worldXBefore = (mouseX - this.offsetX) / this.scale;
-      const worldYBefore = (mouseY - this.offsetY) / this.scale;
+        // Get world coordinates before zoom
+        const worldXBefore = (mouseX - this.offsetX) / this.scale;
+        const worldYBefore = (mouseY - this.offsetY) / this.scale;
 
-      this.scale = newScale;
+        this.scale = newScale;
 
-      // Calculate new offset to keep mouse point stationary
-      this.offsetX = mouseX - worldXBefore * this.scale;
-      this.offsetY = mouseY - worldYBefore * this.scale;
+        // Calculate new offset to keep mouse point stationary
+        this.offsetX = mouseX - worldXBefore * this.scale;
+        this.offsetY = mouseY - worldYBefore * this.scale;
 
+        this.render();
+      },
+      { passive: false },
+    ); // Need passive: false to preventDefault
+
+    this.canvas.addEventListener("mouseleave", () => {
+      this.mouseOverCanvas = false;
       this.render();
-    }, { passive: false }); // Need passive: false to preventDefault
+    });
+    this.canvas.addEventListener("mouseenter", () => {
+      this.mouseOverCanvas = true;
+    });
+    document.addEventListener("keydown", (event) => {
+      if (
+        event.target.closest('input,textarea,select,[contenteditable="true"]')
+      )
+        return;
+      if (this.activeInstrument !== "freeDraw") return;
+      if (event.key === "Alt") {
+        this.brushSizeModifier = true;
+        this.render();
+      }
+      if (["[", "]"].includes(event.key) && !event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        this.setBrushSize(
+          this.freeDrawSettings.size +
+            (event.key === "]" ? 1 : -1) *
+              Math.max(0.1, this.freeDrawSettings.size * 0.1),
+        );
+        this.saveHistory();
+      }
+    });
+    document.addEventListener("keyup", (event) => {
+      if (event.key === "Alt") {
+        this.brushSizeModifier = false;
+        this.render();
+      }
+    });
+    window.addEventListener("blur", () => {
+      this.brushSizeModifier = false;
+      this.render();
+    });
 
     // Combined mouse events for drawing, panning, and selection.
     // TODO: add right-click functionality
@@ -517,7 +739,8 @@ export class CanvasManager {
       const worldPos = this.screenToWorld(startX, startY);
 
       // Middle mouse button for panning
-      if (event.button === 1) { // Middle mouse button
+      if (event.button === 1) {
+        // Middle mouse button
         this.isPanning = true;
         this.lastPanX = event.clientX;
         this.lastPanY = event.clientY;
@@ -526,30 +749,63 @@ export class CanvasManager {
       }
 
       // Left mouse button for drawing/selecting
-      else if (event.button === 0) { // Left mouse button
+      else if (event.button === 0) {
+        if (this.activeInstrument === "layers") return;
+        // Left mouse button
         if (this.activeInstrument === "select") {
+          if (event.shiftKey) {
+            this.isSelecting = true;
+            this.selectionBase = structuredClone(this.selectedObjects);
+            this.selectionStart = this.selectionEnd = worldPos;
+            this.render();
+            return;
+          }
+          this.selectionBase = null;
+          const handle = this.hitHandle(worldPos);
+          if (handle) {
+            this.transformDrag = { ...handle, original: { ...handle.obj } };
+            if (handle.obj.type === "group") {
+              this.transformDrag.members = handle.obj.members.map((m) => ({
+                obj: m.obj,
+                original: { ...m.obj },
+              }));
+              this.transformDrag.startAngle = Math.atan2(
+                worldPos.y - handle.obj.y,
+                worldPos.x - handle.obj.x,
+              );
+            }
+            return;
+          }
           // Check if clicking inside the current selection bounding box (if any)
           const clickedObject = this.getObjectAtWorldPos(worldPos);
           const isSelected = this.isObjectSelected(clickedObject);
 
-          if (clickedObject && isSelected) {
-              // Start moving the existing selection
-              this.isMovingSelection = true;
-              this.selectionDragStart = worldPos;
-              // Keep existing selection
+          if (clickedObject) {
+            if (!isSelected) {
+              if (!event.shiftKey)
+                this.selectedObjects = { grid: [], free: [], custom: [] };
+              this.selectedObjects[clickedObject.type].push(clickedObject.id);
+            }
+            this.expandGroupSelection();
+            this.gridMoveRemainder = { x: 0, y: 0 };
+            // Start moving the existing selection
+            this.isMovingSelection = true;
+            this.selectionDragStart = worldPos;
+            // Keep existing selection
           } else {
-              // Start a new selection
-              this.isSelecting = true;
-              this.selectionStart = worldPos;
-              this.selectionEnd = worldPos;
-              // Clear previous selection unless Shift is held (implement multi-select later)
-              if (!event.shiftKey) {
-                  this.selectedObjects = { grid: [], free: [], custom: [] };
-              }
+            // Start a new selection
+            this.isSelecting = true;
+            this.selectionStart = worldPos;
+            this.selectionEnd = worldPos;
+            // Clear previous selection unless Shift is held (implement multi-select later)
+            if (!event.shiftKey) {
+              this.selectedObjects = { grid: [], free: [], custom: [] };
+            }
           }
         } else {
           // Start drawing with other tools
           this.isDrawing = true;
+          this.strokeCells = new Set();
           this.handleDrawing(worldPos, event); // Pass event if needed
         }
         this.render(); // Render everything immediately
@@ -564,7 +820,27 @@ export class CanvasManager {
       const worldPos = this.screenToWorld(currentX, currentY);
       this.mouseX = worldPos.x;
       this.mouseY = worldPos.y;
+      this.mouseOverCanvas = true;
+      if (
+        this.activeInstrument === "freeDraw" &&
+        (this.brushSizeModifier ||
+          performance.now() < (this.brushPreviewUntil || 0))
+      )
+        this.render();
 
+      if (this.transformDrag) {
+        this.updateTransform(worldPos, event.shiftKey);
+        this.render();
+        return;
+      }
+      if (this.activeInstrument === "select") {
+        const handle = this.hitHandle(worldPos);
+        this.canvas.style.cursor = handle
+          ? handle.kind === "rotate"
+            ? "grab"
+            : "nwse-resize"
+          : "default";
+      }
       // Panning
       if (this.isPanning) {
         const dx = event.clientX - this.lastPanX;
@@ -600,17 +876,28 @@ export class CanvasManager {
 
     // Use *window* mouseup to catch events outside canvas
     window.addEventListener("mouseup", (event) => {
+      if (event.button === 0 && this.transformDrag) {
+        this.transformDrag = null;
+        this.saveHistory();
+        window.hudInstance?.loadInstrumentSettings("select");
+        return;
+      }
       // Panning end
-      if (event.button === 1 && this.isPanning) { // Middle mouse button
+      if (event.button === 1 && this.isPanning) {
+        // Middle mouse button
         this.isPanning = false;
         this.canvas.style.cursor = "default";
       }
       // Drawing/Selecting end
-      else if (event.button === 0) { // Left mouse button
+      else if (event.button === 0) {
+        // Left mouse button
         if (this.isDrawing) {
           this.isDrawing = false;
+          this.strokeCells = null;
           this.lastFreeDrawPosition = null; // Reset for free draw period
-          this.saveHistory(); // Save state after drawing action
+          this.saveHistory(); // Rebuild the union once, after the entire stroke.
+          this.render();
+          window.hudInstance?.updateLayerList();
         }
         if (this.isSelecting) {
           this.isSelecting = false;
@@ -622,13 +909,57 @@ export class CanvasManager {
           this.isMovingSelection = false;
           this.selectionDragStart = null;
           this.saveHistory(); // Save state after moving selection
+          window.hudInstance?.loadInstrumentSettings(this.activeInstrument);
+          window.hudInstance?.updateLayerList();
         }
       }
     });
 
+    this.canvas.addEventListener("dblclick", (event) => {
+      if (this.activeInstrument !== "select" || this.selectionGroup()) return;
+      const rect = this.canvas.getBoundingClientRect(),
+        p = this.screenToWorld(
+          event.clientX - rect.left,
+          event.clientY - rect.top,
+        );
+      for (const id of this.selectedObjects.custom) {
+        const obj = this.customObjects.get(id);
+        if (!obj || obj.type === "light" || !this.editable(obj)) continue;
+        const q = localPoint(obj, p),
+          tolerance = 10 / this.scale;
+        const horizontal =
+          Math.abs(Math.abs(q.y) - obj.height / 2) < tolerance &&
+          Math.abs(q.x) <= obj.width / 2 + tolerance;
+        const vertical =
+          Math.abs(Math.abs(q.x) - obj.width / 2) < tolerance &&
+          Math.abs(q.y) <= obj.height / 2 + tolerance;
+        if (!horizontal && !vertical) continue;
+        const dimension = horizontal ? "width" : "height";
+        const value = prompt(
+          `Object ${dimension} (cells)`,
+          (obj[dimension] / this.currentCellSize).toFixed(2),
+        );
+        if (
+          value !== null &&
+          Number.isFinite(Number(value)) &&
+          Number(value) > 0
+        ) {
+          this.setObjectDimension(
+            obj,
+            dimension,
+            Number(value) * this.currentCellSize,
+          );
+          this.saveHistory();
+          this.render();
+        }
+        break;
+      }
+    });
     // Prevent context menu on canvas
     // TODO: add right-click context menu
-    this.canvas.addEventListener('contextmenu', event => event.preventDefault());
+    this.canvas.addEventListener("contextmenu", (event) =>
+      event.preventDefault(),
+    );
   }
 
   /**
@@ -657,27 +988,53 @@ export class CanvasManager {
     const cellX = Math.floor(worldPos.x / this.currentCellSize); // Cell index over x-axis
     const cellY = Math.floor(worldPos.y / this.currentCellSize); // Cell index over y-axis
     const activeLayerObjects = this.layers[this.activeLayerIndex]?.objects;
+    if (!this.layers[this.activeLayerIndex]?.visible) return;
 
-    if (!activeLayerObjects && this.activeInstrument === 'gridDraw') { // currently only gridDraw is layer-dependent
-        console.warn("No active layer to draw on.");
-        return;
+    if (!activeLayerObjects && this.activeInstrument === "gridDraw") {
+      // currently only gridDraw is layer-dependent
+      console.warn("No active layer to draw on.");
+      return;
     }
 
     switch (this.activeInstrument) {
       case "gridDraw":
         const cellId = this._cellId(cellX, cellY);
+        if (this.isDrawing && this.strokeCells?.has(cellId)) break;
+        this.strokeCells?.add(cellId);
         const currentCell = activeLayerObjects.get(cellId);
+        const settings = this.gridDrawSettings,
+          choices = settings.type === "image" ? settings.tileset || [] : [],
+          source = choices.length
+            ? choices[Math.floor(Math.random() * choices.length)]
+            : settings.imageSrc;
         const newCellData = {
+          blocksLight: this.gridDrawSettings.blocksLight !== false,
+          castsShadow: this.gridDrawSettings.castsShadow !== false,
+          receivesGlobalShadow:
+            (this.gridDrawSettings.receivesGlobalShadow ??
+              this.gridDrawSettings.receivesShadow) === true,
+          receivesLightShadow:
+            this.gridDrawSettings.receivesLightShadow !== false,
+          opacity: this.gridDrawSettings.opacity ?? 1,
           x: cellX,
           y: cellY,
           type: this.gridDrawSettings.type,
           fillColor: this.gridDrawSettings.fillColor,
           borderColor: this.gridDrawSettings.borderColor,
-          image: this.gridDrawSettings.image,
-          imageSrc: this.gridDrawSettings.imageSrc,
+          outlineEnabled:
+            settings.type === "image"
+              ? settings.imageOutlineEnabled === true
+              : settings.outlineEnabled !== false,
+          image:
+            settings.type === "image"
+              ? this.getTileImage(source) || settings.image
+              : null,
+          imageSrc: settings.type === "image" ? source : null,
+          ...(settings.type === "image" ? tileVariation(settings) : {}),
         };
-        
-        if (JSON.stringify(currentCell) !== JSON.stringify(newCellData)) { // If cells are not identical (if they are, we do nothing)
+
+        if (JSON.stringify(currentCell) !== JSON.stringify(newCellData)) {
+          // If cells are not identical (if they are, we do nothing)
           activeLayerObjects.set(cellId, newCellData);
           this.render();
         }
@@ -693,14 +1050,43 @@ export class CanvasManager {
             return; // Don't draw yet
           }
         }
-        const id = Date.now().toString() + Math.random().toString(36).substring(2);
+        const id =
+          Date.now().toString() + Math.random().toString(36).substring(2);
         this.freeDrawObjects.set(id, {
-          x: worldPos.x,
-          y: worldPos.y,
+          layerIndex: this.activeLayerIndex,
+          x:
+            worldPos.x +
+            (Math.random() * 2 - 1) *
+              (this.freeDrawSettings.spread || 0) *
+              this.currentCellSize,
+          y:
+            worldPos.y +
+            (Math.random() * 2 - 1) *
+              (this.freeDrawSettings.spread || 0) *
+              this.currentCellSize,
+          rotation:
+            ((Math.random() * 2 - 1) *
+              (this.freeDrawSettings.rotationRandomness || 0) *
+              Math.PI) /
+            180,
+          mirrorX:
+            ["horizontal", "both"].includes(this.freeDrawSettings.mirroring) &&
+            Math.random() < 0.5,
+          mirrorY:
+            ["vertical", "both"].includes(this.freeDrawSettings.mirroring) &&
+            Math.random() < 0.5,
           type: "freeDraw", // Keep type for potential differentiation
           fillColor: this.freeDrawSettings.fillColor,
           strokeColor: this.freeDrawSettings.strokeColor,
-          size: this.freeDrawSettings.size * this.currentCellSize, // Store size in pixels
+          size:
+            this.freeDrawSettings.size *
+            this.currentCellSize *
+            Math.max(
+              0.05,
+              1 +
+                (Math.random() * 2 - 1) *
+                  (this.freeDrawSettings.sizeRandomness || 0),
+            ),
           image: this.freeDrawSettings.image, // Store the Image object
         });
         this.lastFreeDrawPosition = worldPos; // Update last position
@@ -713,42 +1099,65 @@ export class CanvasManager {
         // Erase grid cell on active layer
         const gridCellId = this._cellId(cellX, cellY);
         if (activeLayerObjects?.has(gridCellId)) {
-            activeLayerObjects.delete(gridCellId);
+          activeLayerObjects.delete(gridCellId);
         }
 
         // Erase free draw objects (check proximity)
         const eraseRadiusFreeWorld = this.currentCellSize / 2;
         for (let [fId, fObj] of this.freeDrawObjects) {
+          if (!this.editable(fObj)) continue;
           const dxFree = fObj.x - worldPos.x;
           const dyFree = fObj.y - worldPos.y;
           // Check distance against object size or a fixed radius
-          if (Math.sqrt(dxFree * dxFree + dyFree * dyFree) < (fObj.size / 2 || eraseRadiusFreeWorld)) {
+          if (
+            Math.sqrt(dxFree * dxFree + dyFree * dyFree) <
+            (fObj.size / 2 || eraseRadiusFreeWorld)
+          ) {
             this.freeDrawObjects.delete(fId);
           }
         }
 
         // Erase custom objects (check bounding box)
         for (let [cId, cObj] of this.customObjects) {
-            // Simple AABB check for now (ignores rotation)
-            if (worldPos.x >= cObj.x - cObj.width / 2 &&
-                worldPos.x <= cObj.x + cObj.width / 2 &&
-                worldPos.y >= cObj.y - cObj.height / 2 &&
-                worldPos.y <= cObj.y + cObj.height / 2) {
-                this.customObjects.delete(cId);
-            }
-            // TODO: Add rotated bounding box check for more accuracy
+          if (this.editable(cObj) && contains(cObj, worldPos))
+            this.customObjects.delete(cId);
         }
         this.render();
         break;
 
+      case "light": {
+        if (event.type !== "mousedown") break;
+        const id = crypto.randomUUID();
+        this.customObjects.set(id, {
+          ...lightDefaults,
+          ...this.lightSettings,
+          type: "light",
+          layerIndex: this.activeLayerIndex,
+          x: worldPos.x,
+          y: worldPos.y,
+          width: this.currentCellSize * 0.6,
+          height: this.currentCellSize * 0.6,
+          rotation: 0,
+        });
+        this.render();
+        break;
+      }
       case "addObject":
+        if (event.type !== "mousedown") break;
         if (this.customObjectImage) {
-          const objId = Date.now().toString() + Math.random().toString(36).substring(2);
+          const objId =
+            Date.now().toString() + Math.random().toString(36).substring(2);
           // Place center at mouse position
-          const objWidth = this.customObjectImage.naturalWidth * (this.currentCellSize / constants.baseCellSize); // Scale based on image size scaled by current cell size.
-          const objHeight = this.customObjectImage.naturalHeight * (this.currentCellSize / constants.baseCellSize);
+          const objWidth =
+            this.customObjectImage.naturalWidth *
+            (this.currentCellSize / constants.baseCellSize); // Scale based on image size scaled by current cell size.
+          const objHeight =
+            this.customObjectImage.naturalHeight *
+            (this.currentCellSize / constants.baseCellSize);
 
           this.customObjects.set(objId, {
+            layerIndex: this.activeLayerIndex,
+            blocksLight: true,
             x: worldPos.x,
             y: worldPos.y,
             width: objWidth,
@@ -759,11 +1168,11 @@ export class CanvasManager {
           });
           this.render();
         } else {
-            // Maybe provide feedback that no image is selected
-            console.log("Select an object image first.");
+          // Maybe provide feedback that no image is selected
+          console.log("Select an object image first.");
         }
         break;
-      
+
       default:
         throw new Error(`Unsupported instrument: ${this.activeInstrument}`);
     }
@@ -787,38 +1196,41 @@ export class CanvasManager {
    * - `object` {Object} - The object itself.
    */
   getObjectAtWorldPos(worldPos) {
-      // Check Custom Objects first (faster, because they're usually on top) - reverse order for top-most
-      const customIds = Array.from(this.customObjects.keys()).reverse();
-      for (const id of customIds) {
-          const obj = this.customObjects.get(id);
-          // TODO: Implement rotated point-in-rect check (should we even bother?)
-          // Simple AABB check for now:
-          if (worldPos.x >= obj.x - obj.width / 2 && worldPos.x <= obj.x + obj.width / 2 &&
-              worldPos.y >= obj.y - obj.height / 2 && worldPos.y <= obj.y + obj.height / 2) {
-              return { type: "custom", id: id, object: obj };
-          }
+    if (!this.layers[this.activeLayerIndex]?.visible) return null;
+    // Check Custom Objects first (faster, because they're usually on top) - reverse order for top-most
+    const customIds = Array.from(this.customObjects.keys()).reverse();
+    for (const id of customIds) {
+      const obj = this.customObjects.get(id);
+      if (this.editable(obj) && contains(obj, worldPos)) {
+        return { type: "custom", id: id, object: obj };
       }
+    }
 
-      // Check Free Draw Objects - reverse order for top-most
-      const freeIds = Array.from(this.freeDrawObjects.keys()).reverse();
-      for (const id of freeIds) {
-          const obj = this.freeDrawObjects.get(id);
-          const dx = obj.x - worldPos.x;
-          const dy = obj.y - worldPos.y;
-          if (Math.sqrt(dx * dx + dy * dy) < obj.size / 2) {
-              return { type: "free", id: id, object: obj };
-          }
+    // Check Free Draw Objects - reverse order for top-most
+    const freeIds = Array.from(this.freeDrawObjects.keys()).reverse();
+    for (const id of freeIds) {
+      const obj = this.freeDrawObjects.get(id);
+      if (!this.editable(obj)) continue;
+      const dx = obj.x - worldPos.x;
+      const dy = obj.y - worldPos.y;
+      if (Math.sqrt(dx * dx + dy * dy) < obj.size / 2) {
+        return { type: "free", id: id, object: obj };
       }
+    }
 
-      // Check Grid Cell on Active Layer
-      const cellX = Math.floor(worldPos.x / this.currentCellSize);
-      const cellY = Math.floor(worldPos.y / this.currentCellSize);
-      const cellId = this._cellId(cellX, cellY);
-      if (this.layers[this.activeLayerIndex]?.objects.has(cellId)) {
-          return { type: "grid", id: cellId, object: this.layers[this.activeLayerIndex].objects.get(cellId) };
-      }
+    // Check Grid Cell on Active Layer
+    const cellX = Math.floor(worldPos.x / this.currentCellSize);
+    const cellY = Math.floor(worldPos.y / this.currentCellSize);
+    const cellId = this._cellId(cellX, cellY);
+    if (this.layers[this.activeLayerIndex]?.objects.has(cellId)) {
+      return {
+        type: "grid",
+        id: cellId,
+        object: this.layers[this.activeLayerIndex].objects.get(cellId),
+      };
+    }
 
-      return null; // Nothing found
+    return null; // Nothing found
   }
 
   /**
@@ -830,13 +1242,17 @@ export class CanvasManager {
    * @returns {boolean} Returns `true` if the object is selected, otherwise `false`.
    */
   isObjectSelected(objInfo) {
-      if (!objInfo) return false;
-      switch (objInfo.type) {
-          case 'grid': return this.selectedObjects.grid.includes(objInfo.id);
-          case 'free': return this.selectedObjects.free.includes(objInfo.id);
-          case 'custom': return this.selectedObjects.custom.includes(objInfo.id);
-          default: return false;
-      }
+    if (!objInfo) return false;
+    switch (objInfo.type) {
+      case "grid":
+        return this.selectedObjects.grid.includes(objInfo.id);
+      case "free":
+        return this.selectedObjects.free.includes(objInfo.id);
+      case "custom":
+        return this.selectedObjects.custom.includes(objInfo.id);
+      default:
+        return false;
+    }
   }
 
   /**
@@ -844,79 +1260,101 @@ export class CanvasManager {
    * Handles both single-click and drag-based selection of objects.
    * Updates the `selectedObjects` property based on the selection area or clicked object.
    * Clears the selection rectangle drawing points after processing.
-   * 
+   *
    * Behavior:
    * - Single-click: Selects a single object at the clicked position.
    * - Drag-selection: Selects all objects within the rectangular selection area.
-   * 
+   *
    * Selection Types:
    * - Grid objects: Selected based on their center point being within the selection rectangle.
    * - Free draw objects: Selected based on their position being within the selection rectangle.
    * - Custom objects: Selected based on their axis-aligned bounding box (AABB) intersecting the selection rectangle.
-   * 
+   *
    * Notes:
-   * - Clears previous selections unless shift-click functionality is implemented.
+   * - Shift-drag adds to the selection without starting a move.
    * - Calls `window.hudInstance.loadInstrumentSettings` to update the HUD with the active instrument settings.
    */
   finalizeSelection() {
-    // TODO: Implement shift-click add to selection
-    // If selectionStart and selectionEnd are the same (a click, not a drag)
-    if (this.selectionStart && this.selectionEnd &&
-        this.selectionStart.x === this.selectionEnd.x &&
-        this.selectionStart.y === this.selectionEnd.y)
-    {
-        const clickedObject = this.getObjectAtWorldPos(this.selectionStart);
-        if (clickedObject) { // we have chosen an object
-            this.selectedObjects = { grid: [], free: [], custom: [] }; // Clear previous (maybe for shift-click we shouldn't?)
-            if (clickedObject.type === 'grid') this.selectedObjects.grid.push(clickedObject.id);
-            if (clickedObject.type === 'free') this.selectedObjects.free.push(clickedObject.id);
-            if (clickedObject.type === 'custom') this.selectedObjects.custom.push(clickedObject.id);
-        } else {
-            // Clicked on empty space, clear selection
-            this.selectedObjects = { grid: [], free: [], custom: [] };
-        }
+    if (!this.layers[this.activeLayerIndex]?.visible) return;
+    this.selectedObjects = this.selectionBase || {
+      grid: [],
+      free: [],
+      custom: [],
+    };
+    if (
+      this.selectionStart &&
+      this.selectionEnd &&
+      Math.hypot(
+        this.selectionStart.x - this.selectionEnd.x,
+        this.selectionStart.y - this.selectionEnd.y,
+      ) *
+        this.scale <
+        3
+    ) {
+      const hit = this.getObjectAtWorldPos(this.selectionStart);
+      if (hit && !this.selectedObjects[hit.type].includes(hit.id))
+        this.selectedObjects[hit.type].push(hit.id);
     }
     // If it was a drag selection
     else if (this.selectionStart && this.selectionEnd) {
-        this.selectedObjects = { grid: [], free: [], custom: [] }; // Clear previous (maybe for shift-click we shouldn't?)
+      const startX = Math.min(this.selectionStart.x, this.selectionEnd.x);
+      const startY = Math.min(this.selectionStart.y, this.selectionEnd.y);
+      const endX = Math.max(this.selectionStart.x, this.selectionEnd.x);
+      const endY = Math.max(this.selectionStart.y, this.selectionEnd.y);
 
-        const startX = Math.min(this.selectionStart.x, this.selectionEnd.x);
-        const startY = Math.min(this.selectionStart.y, this.selectionEnd.y);
-        const endX = Math.max(this.selectionStart.x, this.selectionEnd.x);
-        const endY = Math.max(this.selectionStart.y, this.selectionEnd.y);
+      // Select grid cells (check center point within rect)
+      const activeLayerObjects = this.layers[this.activeLayerIndex]?.objects;
+      if (activeLayerObjects) {
+        activeLayerObjects.forEach((cell, cellId) => {
+          const cellCenterX = (cell.x + 0.5) * this.currentCellSize;
+          const cellCenterY = (cell.y + 0.5) * this.currentCellSize;
+          if (
+            cellCenterX >= startX &&
+            cellCenterX < endX &&
+            cellCenterY >= startY &&
+            cellCenterY < endY
+          ) {
+            this.selectedObjects.grid.push(cellId);
+          }
+        });
+      }
 
-        // Select grid cells (check center point within rect)
-        const activeLayerObjects = this.layers[this.activeLayerIndex]?.objects;
-        if (activeLayerObjects) {
-            activeLayerObjects.forEach((cell, cellId) => {
-                const cellCenterX = (cell.x + 0.5) * this.currentCellSize;
-                const cellCenterY = (cell.y + 0.5) * this.currentCellSize;
-                if (cellCenterX >= startX && cellCenterX < endX && cellCenterY >= startY && cellCenterY < endY) {
-                    this.selectedObjects.grid.push(cellId);
-                }
-            });
+      // Select free draw objects (check center point within rect)
+      this.freeDrawObjects.forEach((obj, id) => {
+        if (!this.editable(obj)) return;
+        if (
+          obj.x >= startX &&
+          obj.x < endX &&
+          obj.y >= startY &&
+          obj.y < endY
+        ) {
+          this.selectedObjects.free.push(id);
         }
+      });
 
-        // Select free draw objects (check center point within rect)
-        this.freeDrawObjects.forEach((obj, id) => {
-            if (obj.x >= startX && obj.x < endX && obj.y >= startY && obj.y < endY) {
-                this.selectedObjects.free.push(id);
-            }
-        });
-
-        // Select custom objects (check if AABB intersects rect)
-        this.customObjects.forEach((obj, id) => {
-            const objMinX = obj.x - obj.width / 2;
-            const objMinY = obj.y - obj.height / 2;
-            const objMaxX = obj.x + obj.width / 2;
-            const objMaxY = obj.y + obj.height / 2;
-            // Check for intersection
-            if (objMaxX > startX && objMinX < endX && objMaxY > startY && objMinY < endY) {
-                this.selectedObjects.custom.push(id);
-            }
-        });
+      // Select custom objects (check if AABB intersects rect)
+      this.customObjects.forEach((obj, id) => {
+        if (!this.editable(obj)) return;
+        const objMinX = obj.x - obj.width / 2;
+        const objMinY = obj.y - obj.height / 2;
+        const objMaxX = obj.x + obj.width / 2;
+        const objMaxY = obj.y + obj.height / 2;
+        // Check for intersection
+        if (
+          objMaxX > startX &&
+          objMinX < endX &&
+          objMaxY > startY &&
+          objMinY < endY
+        ) {
+          this.selectedObjects.custom.push(id);
+        }
+      });
     }
 
+    for (const type of ["grid", "free", "custom"])
+      this.selectedObjects[type] = [...new Set(this.selectedObjects[type])];
+    this.expandGroupSelection();
+    this.selectionBase = null;
     // Reset selection rectangle drawing points
     this.selectionStart = null;
     this.selectionEnd = null;
@@ -925,15 +1363,46 @@ export class CanvasManager {
 
   /**
    * Moves the currently selected objects on the canvas by the specified offsets in world coordinates.
-   * 
+   *
    * This method updates the positions of free draw objects and custom objects that are currently selected.
-   * Grid cells are not supported for movement.
-   * 
+   * Grid cells move in whole-cell steps; images and freehand marks move freely.
+   *
    * @param {number} dxWorld - The horizontal offset in world coordinates to move the selected objects.
    * @param {number} dyWorld - The vertical offset in world coordinates to move the selected objects.
    */
   moveSelection(dxWorld, dyWorld) {
-    // We don't currently support moving grid cells
+    const remainder = (this.gridMoveRemainder ||= { x: 0, y: 0 });
+    remainder.x += dxWorld;
+    remainder.y += dyWorld;
+    const gx = Math.trunc(remainder.x / this.currentCellSize),
+      gy = Math.trunc(remainder.y / this.currentCellSize);
+    if ((gx || gy) && this.selectedObjects.grid.length) {
+      const cells = this.layers[this.activeLayerIndex].objects,
+        moved = [];
+      const selected = new Set(this.selectedObjects.grid);
+      for (const id of selected) {
+        const cell = cells.get(id);
+        if (cell) {
+          const target = this._cellId(cell.x + gx, cell.y + gy);
+          if (cells.has(target) && !selected.has(target)) {
+            remainder.x = remainder.y = 0;
+            return;
+          }
+        }
+      }
+      for (const id of this.selectedObjects.grid) {
+        const cell = cells.get(id);
+        if (cell) moved.push({ ...cell, x: cell.x + gx, y: cell.y + gy });
+        cells.delete(id);
+      }
+      this.selectedObjects.grid = moved.map((cell) => {
+        const id = this._cellId(cell.x, cell.y);
+        cells.set(id, cell);
+        return id;
+      });
+      remainder.x -= gx * this.currentCellSize;
+      remainder.y -= gy * this.currentCellSize;
+    }
 
     // Move Free Draw Objects
     this.selectedObjects.free.forEach((id) => {
@@ -952,8 +1421,6 @@ export class CanvasManager {
         obj.y += dyWorld;
       }
     });
-
-    window.hudInstance.loadInstrumentSettings(this.activeInstrument);
   }
 
   /**
@@ -966,44 +1433,163 @@ export class CanvasManager {
    * @returns {{x: number, y: number} | null} The center point of the selection as an object
    * with `x` and `y` coordinates, or `null` if no objects are selected.
    */
+  selectedMembers() {
+    return ["free", "custom"].flatMap((kind) => {
+      const objects =
+        kind === "free" ? this.freeDrawObjects : this.customObjects;
+      return this.selectedObjects[kind].flatMap((id) => {
+        const obj = objects.get(id);
+        return obj && this.editable(obj) ? [{ kind, id, obj }] : [];
+      });
+    });
+  }
+
+  expandGroupSelection() {
+    const groups = new Set(
+      this.selectedMembers()
+        .map((m) => m.obj.groupId)
+        .filter(Boolean),
+    );
+    if (!groups.size) return;
+    for (const kind of ["free", "custom"]) {
+      const objects =
+        kind === "free" ? this.freeDrawObjects : this.customObjects;
+      for (const [id, obj] of objects)
+        if (
+          this.editable(obj) &&
+          groups.has(obj.groupId) &&
+          !this.selectedObjects[kind].includes(id)
+        )
+          this.selectedObjects[kind].push(id);
+    }
+  }
+
+  groupSelection() {
+    this.expandGroupSelection();
+    const members = this.selectedMembers();
+    if (this.selectedObjects.grid.length || members.length < 2) return false;
+    const id = crypto.randomUUID();
+    for (const { obj } of members) {
+      obj.groupId = id;
+      obj.groupRotation = 0;
+    }
+    this.saveHistory();
+    this.render();
+    window.hudInstance?.loadInstrumentSettings(this.activeInstrument);
+    return true;
+  }
+
+  ungroupSelection() {
+    this.expandGroupSelection();
+    for (const { obj } of this.selectedMembers()) {
+      delete obj.groupId;
+      delete obj.groupRotation;
+    }
+    this.saveHistory();
+    this.render();
+    window.hudInstance?.loadInstrumentSettings(this.activeInstrument);
+  }
+
+  selectionGroup() {
+    if (this.selectedObjects.grid.length) return null;
+    const members = this.selectedMembers(),
+      id = members[0]?.obj.groupId;
+    if (members.length < 2 || !id || members.some((m) => m.obj.groupId !== id))
+      return null;
+    const x = members.reduce((n, m) => n + m.obj.x, 0) / members.length,
+      y = members.reduce((n, m) => n + m.obj.y, 0) / members.length,
+      rotation = members[0].obj.groupRotation || 0,
+      c = Math.cos(rotation),
+      s = Math.sin(rotation);
+    let halfWidth = 0,
+      halfHeight = 0;
+    for (const { kind, obj } of members) {
+      const points = corners(
+        kind === "free" ? { ...obj, width: obj.size, height: obj.size } : obj,
+      );
+      for (const p of points) {
+        const dx = p.x - x,
+          dy = p.y - y;
+        halfWidth = Math.max(halfWidth, Math.abs(dx * c + dy * s));
+        halfHeight = Math.max(halfHeight, Math.abs(-dx * s + dy * c));
+      }
+    }
+    return {
+      type: "group",
+      groupId: id,
+      layerIndex: this.activeLayerIndex,
+      x,
+      y,
+      rotation,
+      width: Math.max(halfWidth * 2, 1),
+      height: Math.max(halfHeight * 2, 1),
+      members,
+    };
+  }
+
+  setGroupRotation(degrees) {
+    const frame = this.selectionGroup();
+    if (!frame) return;
+    this.applyGroupRotation(
+      frame,
+      frame.members.map((m) => ({ obj: m.obj, original: { ...m.obj } })),
+      (degrees * Math.PI) / 180,
+    );
+  }
+
+  applyGroupRotation(frame, members, angle) {
+    const delta = angle - frame.rotation,
+      c = Math.cos(delta),
+      s = Math.sin(delta);
+    for (const { obj, original } of members) {
+      const dx = original.x - frame.x,
+        dy = original.y - frame.y;
+      obj.x = frame.x + dx * c - dy * s;
+      obj.y = frame.y + dx * s + dy * c;
+      obj.rotation = (original.rotation || 0) + delta;
+      obj.groupRotation = angle;
+    }
+  }
+
   getSelectionCenter() {
-      let count = 0; // Total number of selected objects
-      let sumX = 0; // Total x-coordinate of selected objects
-      let sumY = 0; // Total y-coordinate of selected objects
+    let count = 0; // Total number of selected objects
+    let sumX = 0; // Total x-coordinate of selected objects
+    let sumY = 0; // Total y-coordinate of selected objects
 
-      const activeLayerObjects = this.layers[this.activeLayerIndex]?.objects;
-      if (activeLayerObjects) {
-          this.selectedObjects.grid.forEach(cellId => {
-              const cell = activeLayerObjects.get(cellId);
-              if (cell) {
-                  sumX += (cell.x + 0.5) * this.currentCellSize;
-                  sumY += (cell.y + 0.5) * this.currentCellSize;
-                  count++;
-              }
-          });
+    const activeLayerObjects = this.layers[this.activeLayerIndex]?.objects;
+    if (activeLayerObjects) {
+      this.selectedObjects.grid.forEach((cellId) => {
+        const cell = activeLayerObjects.get(cellId);
+        if (cell) {
+          sumX += (cell.x + 0.5) * this.currentCellSize;
+          sumY += (cell.y + 0.5) * this.currentCellSize;
+          count++;
+        }
+      });
+    }
+    this.selectedObjects.free.forEach((id) => {
+      const obj = this.freeDrawObjects.get(id);
+      if (obj) {
+        sumX += obj.x;
+        sumY += obj.y;
+        count++;
       }
-      this.selectedObjects.free.forEach(id => {
-          const obj = this.freeDrawObjects.get(id);
-          if (obj) {
-              sumX += obj.x;
-              sumY += obj.y;
-              count++;
-          }
-      });
-      this.selectedObjects.custom.forEach(id => {
-          const obj = this.customObjects.get(id);
-          if (obj) {
-              sumX += obj.x;
-              sumY += obj.y;
-              count++;
-          }
-      });
+    });
+    this.selectedObjects.custom.forEach((id) => {
+      const obj = this.customObjects.get(id);
+      if (obj) {
+        sumX += obj.x;
+        sumY += obj.y;
+        count++;
+      }
+    });
 
-      if (count === 0) { // No selection or empty selection
-          return null;
-      }
-      // Return average position a.k.a. center
-      return { x: sumX / count, y: sumY / count };
+    if (count === 0) {
+      // No selection or empty selection
+      return null;
+    }
+    // Return average position a.k.a. center
+    return { x: sumX / count, y: sumY / count };
   }
 
   /**
@@ -1013,7 +1599,7 @@ export class CanvasManager {
    * Positive values rotate clockwise, and negative values rotate counterclockwise.
    *
    * This method calculates the center of the selected objects and rotates each object around that center.
-   * - Free draw objects are repositioned without modifying any inherent rotation property.
+   * - Free draw objects and custom objects rotate in place and orbit the shared center.
    * - Custom objects are repositioned and their internal rotation property is updated.
    * - Grid cells are not rotated as rotating grid cells is generally not practical.
    *
@@ -1036,7 +1622,8 @@ export class CanvasManager {
         let dy = obj.y - center.y;
         obj.x = center.x + dx * cosRad - dy * sinRad;
         obj.y = center.y + dx * sinRad + dy * cosRad;
-        // Free draw objects don't have inherent rotation property
+        obj.rotation = (obj.rotation || 0) + rad;
+        if (obj.groupId) obj.groupRotation = (obj.groupRotation || 0) + rad;
       }
     });
 
@@ -1048,7 +1635,8 @@ export class CanvasManager {
         let dy = obj.y - center.y;
         obj.x = center.x + dx * cosRad - dy * sinRad;
         obj.y = center.y + dx * sinRad + dy * cosRad;
-        obj.rotation = (obj.rotation + rad) % (2 * Math.PI); // Keep rotation within 0-2PI
+        obj.rotation = (obj.rotation + rad) % (2 * Math.PI);
+        if (obj.groupId) obj.groupRotation = (obj.groupRotation || 0) + rad;
       }
     });
 
@@ -1061,19 +1649,19 @@ export class CanvasManager {
 
   /**
    * Resizes the currently selected objects on the canvas by a given scale factor.
-   * 
+   *
    * @param {number} scaleFactor - The factor by which to scale the selected objects. Must be greater than 0.
-   * 
-   * This method adjusts the size and position of selected objects relative to their 
-   * center point. It supports resizing for free draw objects and custom objects, 
-   * but excludes cell formations as resizing them is not applicable. After resizing, 
-   * the canvas is re-rendered, the HUD instrument settings are updated, and the 
+   *
+   * This method adjusts the size and position of selected objects relative to their
+   * center point. It supports resizing for free draw objects and custom objects,
+   * but excludes cell formations as resizing them is not applicable. After resizing,
+   * the canvas is re-rendered, the HUD instrument settings are updated, and the
    * action is saved to the history for undo/redo functionality.
-   * 
+   *
    * Notes:
    * Free draw objects: Adjusts `x`, `y`, and `size` properties.
    * Custom objects: Adjusts `x`, `y`, `width`, and `height` properties.
-   * 
+   *
    * The method ensures that invalid scale factors or empty selections are handled correctly.
    */
   resizeSelection(scaleFactor) {
@@ -1111,27 +1699,28 @@ export class CanvasManager {
 
   /**
    * Deletes the currently selected objects from the canvas.
-   * This method removes objects from the active layer, free draw objects, 
-   * and custom objects based on the current selection. It also clears the 
+   * This method removes objects from the active layer, free draw objects,
+   * and custom objects based on the current selection. It also clears the
    * selection state and updates the canvas if any changes were made.
    */
   deleteSelection() {
+    if (!this.layers[this.activeLayerIndex]?.visible) return;
     let changed = false;
     const activeLayerObjects = this.layers[this.activeLayerIndex]?.objects;
 
     this.selectedObjects.grid.forEach((cellId) => {
       if (activeLayerObjects?.delete(cellId)) {
-          changed = true;
+        changed = true;
       }
     });
     this.selectedObjects.free.forEach((id) => {
       if (this.freeDrawObjects.delete(id)) {
-          changed = true;
+        changed = true;
       }
     });
     this.selectedObjects.custom.forEach((id) => {
       if (this.customObjects.delete(id)) {
-          changed = true;
+        changed = true;
       }
     });
 
@@ -1141,9 +1730,10 @@ export class CanvasManager {
     this.selectionEnd = null;
 
     if (changed) {
-        this.render();
-        window.hudInstance.loadInstrumentSettings(this.activeInstrument);
-        this.saveHistory();
+      this.render();
+      window.hudInstance.loadInstrumentSettings(this.activeInstrument);
+      this.saveHistory();
+      window.hudInstance?.updateLayerList();
     }
   }
 
@@ -1160,58 +1750,61 @@ export class CanvasManager {
    * After copying, the method logs the copied selection and updates the HUD instrument settings.
    */
   copySelection() {
-      this.copiedSelection = { grid: [], free: [], custom: [] };
-      const activeLayerObjects = this.layers[this.activeLayerIndex]?.objects;
+    this.expandGroupSelection();
+    this.copiedSelection = { grid: [], free: [], custom: [] };
+    const activeLayerObjects = this.layers[this.activeLayerIndex]?.objects;
 
-      this.selectedObjects.grid.forEach(cellId => {
-          if (activeLayerObjects?.has(cellId)) {
-              // Deep copy cell data, ensuring image src is used if present
-              let originalCell = activeLayerObjects.get(cellId);
-              let cellCopy = { ...originalCell };
-              if (cellCopy.imageSrc) cellCopy.image = cellCopy.imageSrc;
-              else delete cellCopy.image;
-              this.copiedSelection.grid.push(cellCopy);
-          }
-      });
-      this.selectedObjects.free.forEach(id => {
-          if (this.freeDrawObjects.has(id)) {
-              let originalObj = this.freeDrawObjects.get(id);
-              let objCopy = { ...originalObj };
-              if (objCopy.image?.src) objCopy.image = objCopy.image.src;
-              else delete objCopy.image;
-              this.copiedSelection.free.push(objCopy);
-          }
-      });
-      this.selectedObjects.custom.forEach(id => {
-          if (this.customObjects.has(id)) {
-              let originalObj = this.customObjects.get(id);
-              let objCopy = { ...originalObj };
-              if (objCopy.imageSrc) objCopy.image = objCopy.imageSrc;
-              else delete objCopy.image;
-              this.copiedSelection.custom.push(objCopy);
-          }
-      });
-      console.log("Copied:", this.copiedSelection); // we might replace this with a toast
-      window.hudInstance.loadInstrumentSettings(this.activeInstrument);
+    this.selectedObjects.grid.forEach((cellId) => {
+      if (activeLayerObjects?.has(cellId)) {
+        // Deep copy cell data, ensuring image src is used if present
+        let originalCell = activeLayerObjects.get(cellId);
+        let cellCopy = { ...originalCell };
+        if (cellCopy.imageSrc) cellCopy.image = cellCopy.imageSrc;
+        else delete cellCopy.image;
+        this.copiedSelection.grid.push(cellCopy);
+      }
+    });
+    this.selectedObjects.free.forEach((id) => {
+      if (this.freeDrawObjects.has(id)) {
+        let originalObj = this.freeDrawObjects.get(id);
+        let objCopy = { ...originalObj };
+        if (objCopy.image?.src) objCopy.image = objCopy.image.src;
+        else delete objCopy.image;
+        this.copiedSelection.free.push(objCopy);
+      }
+    });
+    this.selectedObjects.custom.forEach((id) => {
+      if (this.customObjects.has(id)) {
+        let originalObj = this.customObjects.get(id);
+        let objCopy = { ...originalObj };
+        if (objCopy.imageSrc) objCopy.image = objCopy.imageSrc;
+        else delete objCopy.image;
+        this.copiedSelection.custom.push(objCopy);
+      }
+    });
+    console.log("Copied:", this.copiedSelection); // we might replace this with a toast
+    window.hudInstance.loadInstrumentSettings(this.activeInstrument);
   }
 
   /**
    * Pastes the copied selection onto the canvas at the current mouse position.
    * Handles pasting for grid cells, free draw objects, and custom objects.
    * Updates the canvas rendering, HUD instrument settings, and saves the action to history.
-   * 
+   *
    * Notes:
    * For grid cells, calculates the offset based on the mouse position and pastes them relative to their original positions.
    * For free draw and custom objects, calculates the offset based on the mouse position and pastes them relative to their original positions.
    * Ensures that image objects are properly loaded and rendered.
    */
   pasteSelection() {
-    if (!this.copiedSelection) return;
+    if (!this.copiedSelection || !this.layers[this.activeLayerIndex]?.visible)
+      return;
 
     const activeLayerObjects = this.layers[this.activeLayerIndex]?.objects;
     if (!activeLayerObjects) return; // Cannot paste grid cells without active layer
 
-    const mouseWorldPos = {x: this.mouseX, y: this.mouseY};
+    const pastedSelection = { grid: [], free: [], custom: [] };
+    const mouseWorldPos = { x: this.mouseX, y: this.mouseY };
 
     // Calculate offset for grid cells
     const gridOffsetX = Math.floor(mouseWorldPos.x / this.currentCellSize);
@@ -1221,15 +1814,31 @@ export class CanvasManager {
     const freeCustomOffsetX = mouseWorldPos.x;
     const freeCustomOffsetY = mouseWorldPos.y;
 
-    // Currently we treat each selection type separately (each type is being paste into the same position)
+    const copiedObjects = [
+        ...this.copiedSelection.free,
+        ...this.copiedSelection.custom,
+      ],
+      minObjectX = Math.min(...copiedObjects.map((o) => o.x)),
+      minObjectY = Math.min(...copiedObjects.map((o) => o.y)),
+      pastedGroups = new Map();
+    const remapGroup = (obj) => {
+      if (!obj.groupId) return;
+      if (!pastedGroups.has(obj.groupId))
+        pastedGroups.set(obj.groupId, crypto.randomUUID());
+      obj.groupId = pastedGroups.get(obj.groupId);
+    };
     // Paste Grid Cells
-    this.copiedSelection.grid.forEach(cellData => {
+    this.copiedSelection.grid.forEach((cellData) => {
       let newCell = { ...cellData };
-      newCell.x = gridOffsetX + (newCell.x - Math.min(...this.copiedSelection.grid.map(c => c.x)));
-      newCell.y = gridOffsetY + (newCell.y - Math.min(...this.copiedSelection.grid.map(c => c.y)));
+      newCell.x =
+        gridOffsetX +
+        (newCell.x - Math.min(...this.copiedSelection.grid.map((c) => c.x)));
+      newCell.y =
+        gridOffsetY +
+        (newCell.y - Math.min(...this.copiedSelection.grid.map((c) => c.y)));
       const newCellId = this._cellId(newCell.x, newCell.y);
 
-      if (newCell.type === 'image' && typeof newCell.image === 'string') {
+      if (newCell.type === "image" && typeof newCell.image === "string") {
         let img = new Image();
         img.src = newCell.image;
         newCell.imageSrc = newCell.image;
@@ -1237,32 +1846,38 @@ export class CanvasManager {
         img.onload = () => this.render();
       }
       activeLayerObjects.set(newCellId, newCell);
+      pastedSelection.grid.push(newCellId);
     });
 
     // Paste Free Draw Objects
-    this.copiedSelection.free.forEach(objData => {
-      let newObj = { ...objData };
-      newObj.x = freeCustomOffsetX + (newObj.x - Math.min(...this.copiedSelection.free.map(o => o.x)));
-      newObj.y = freeCustomOffsetY + (newObj.y - Math.min(...this.copiedSelection.free.map(o => o.y)));
-      const newId = Date.now().toString() + Math.random().toString(36).substring(2);
+    this.copiedSelection.free.forEach((objData) => {
+      let newObj = { ...objData, layerIndex: this.activeLayerIndex };
+      remapGroup(newObj);
+      newObj.x = freeCustomOffsetX + (newObj.x - minObjectX);
+      newObj.y = freeCustomOffsetY + (newObj.y - minObjectY);
+      const newId =
+        Date.now().toString() + Math.random().toString(36).substring(2);
 
-      if (newObj.image && typeof newObj.image === 'string') {
+      if (newObj.image && typeof newObj.image === "string") {
         let img = new Image();
         img.src = newObj.image;
         newObj.image = img;
         img.onload = () => this.render();
       }
       this.freeDrawObjects.set(newId, newObj);
+      pastedSelection.free.push(newId);
     });
 
     // Paste Custom Objects
-    this.copiedSelection.custom.forEach(objData => {
-      let newObj = { ...objData };
-      newObj.x = freeCustomOffsetX + (newObj.x - Math.min(...this.copiedSelection.custom.map(o => o.x)));
-      newObj.y = freeCustomOffsetY + (newObj.y - Math.min(...this.copiedSelection.custom.map(o => o.y)));
-      const newId = Date.now().toString() + Math.random().toString(36).substring(2);
+    this.copiedSelection.custom.forEach((objData) => {
+      let newObj = { ...objData, layerIndex: this.activeLayerIndex };
+      remapGroup(newObj);
+      newObj.x = freeCustomOffsetX + (newObj.x - minObjectX);
+      newObj.y = freeCustomOffsetY + (newObj.y - minObjectY);
+      const newId =
+        Date.now().toString() + Math.random().toString(36).substring(2);
 
-      if (newObj.image && typeof newObj.image === 'string') {
+      if (newObj.image && typeof newObj.image === "string") {
         let img = new Image();
         img.src = newObj.image;
         newObj.imageSrc = newObj.image;
@@ -1270,8 +1885,10 @@ export class CanvasManager {
         img.onload = () => this.render();
       }
       this.customObjects.set(newId, newObj);
+      pastedSelection.custom.push(newId);
     });
 
+    this.selectedObjects = pastedSelection;
     this.render();
     window.hudInstance.loadInstrumentSettings(this.activeInstrument);
     this.saveHistory();
@@ -1282,9 +1899,11 @@ export class CanvasManager {
    * This method uses `requestAnimationFrame` for smoother rendering.
    */
   render() {
-    // Request animation frame for smoother rendering
+    if (this.renderPending) return;
+    this.renderPending = true;
     requestAnimationFrame(() => {
-        this._doRender();
+      this.renderPending = false;
+      this._doRender();
     });
   }
 
@@ -1305,74 +1924,38 @@ export class CanvasManager {
 
     // Calculate visible world bounds for more optimized rendering
     const viewBounds = {
-        minX: -this.offsetX / this.scale,
-        minY: -this.offsetY / this.scale,
-        maxX: (this.canvas.width - this.offsetX) / this.scale,
-        maxY: (this.canvas.height - this.offsetY) / this.scale,
+      minX: -this.offsetX / this.scale,
+      minY: -this.offsetY / this.scale,
+      maxX: (this.canvas.width - this.offsetX) / this.scale,
+      maxY: (this.canvas.height - this.offsetY) / this.scale,
     };
 
-    // Draw the base grid (empty cells) - considers all layers for emptiness
-    this.drawGrid(ctx, this.currentCellSize, viewBounds);
-
-    // Draw Layer Content (Cells, Shadows, Borders)
-    this.layers.forEach((layer, index) => {
-      if (!layer.visible) return; // Skip rendering if layer is not visible
-
-      const layerObjects = layer.objects;
-      const layerShadowOptions = layer.gridShadowOptions;
-
-      // Draw Shadows for currently drawn layer (if enabled)
-      if (layerShadowOptions && layerShadowOptions.enabled && layerObjects.size > 0) {
-        // Pass the specific layer's objects and options
-        this.drawGridShadows(ctx, this.currentCellSize, viewBounds, layerObjects, layerShadowOptions);
-      }
-
-      // Draw Borders if enabled (still global for now)
-      if (this.gridBorderOptions.enabled && this.gridBorderOptions.image) {
-         // Pass the specific layer's objects to check against
-         this.drawGridBorders(ctx, this.currentCellSize, viewBounds, layerObjects);
-      }
-
-      // Draw Grid Cells for currently drawn layer
-      layerObjects.forEach((cell) => {
-        // Basic culling check
-        const cellMaxX = (cell.x + 1) * this.currentCellSize;
-        const cellMaxY = (cell.y + 1) * this.currentCellSize;
-        if (cellMaxX > viewBounds.minX && cell.x * this.currentCellSize < viewBounds.maxX &&
-            cellMaxY > viewBounds.minY && cell.y * this.currentCellSize < viewBounds.maxY)
-        {
-            this.drawGridCell(cell);
-        }
-      });
-    });
-
-    // Draw Global Objects (Free Draw, Custom)
-    // These are drawn *after* all layers
-    // TODO: make them layer-dependent
-    this.freeDrawObjects.forEach((obj) => {
-        const objBounds = { minX: obj.x - obj.size/2, minY: obj.y - obj.size/2, maxX: obj.x + obj.size/2, maxY: obj.y + obj.size/2 };
-        if (objBounds.maxX > viewBounds.minX && objBounds.minX < viewBounds.maxX &&
-            objBounds.maxY > viewBounds.minY && objBounds.minY < viewBounds.maxY)
-        {
-            this.drawFreeDrawObject(obj);
-        }
-    });
-    this.customObjects.forEach((obj) => {
-        // AABB check for culling (ignoring rotation for simplicity)
-        const objBounds = { minX: obj.x - obj.width/2, minY: obj.y - obj.height/2, maxX: obj.x + obj.width/2, maxY: obj.y + obj.height/2 };
-         if (objBounds.maxX > viewBounds.minX && objBounds.minX < viewBounds.maxX &&
-             objBounds.maxY > viewBounds.minY && objBounds.minY < viewBounds.maxY)
-         {
-            this.drawCustomObject(obj);
-         }
-    });
-
+    drawScene(this, ctx, viewBounds, { editor: true });
+    // Light markers are drawn within their own layer by the editor scene pass.
     // Draw Selection
     if (this.isSelecting && this.selectionStart && this.selectionEnd) {
       this.drawSelectionRect();
     }
     this.drawSelectionHighlights(); // Highlights based on global selection state
-
+    if (
+      this.activeInstrument === "freeDraw" &&
+      this.mouseOverCanvas &&
+      (this.brushSizeModifier ||
+        performance.now() < (this.brushPreviewUntil || 0))
+    ) {
+      const radius = (this.freeDrawSettings.size * this.currentCellSize) / 2;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(this.mouseX, this.mouseY, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 3 / this.scale;
+      ctx.stroke();
+      ctx.strokeStyle = "#254e86";
+      ctx.lineWidth = 1.5 / this.scale;
+      ctx.setLineDash([5 / this.scale, 3 / this.scale]);
+      ctx.stroke();
+      ctx.restore();
+    }
     ctx.restore();
   }
 
@@ -1385,16 +1968,16 @@ export class CanvasManager {
    * @param {number} cellSize - The size of each grid cell in pixels.
    * @param {Object} viewBounds - The visible bounds of the canvas.
    */
-  drawGrid(ctx, cellSize, viewBounds) {
+  drawGrid(ctx, cellSize, viewBounds, appearance = this.emptyCellSettings) {
     const startX = Math.floor(viewBounds.minX / cellSize) - 1;
     const startY = Math.floor(viewBounds.minY / cellSize) - 1;
     const endX = Math.ceil(viewBounds.maxX / cellSize) + 1;
     const endY = Math.ceil(viewBounds.maxY / cellSize) + 1;
 
-    ctx.lineWidth = Math.max(0.5, 1 / this.scale); // Ensure minimum visibility
-    const emptyFill = this.emptyCellSettings.fillColor;
-    const emptyBorder = this.emptyCellSettings.borderColor;
-    const emptyPattern = this.emptyCellSettings.pattern;
+    ctx.lineWidth = this.currentCellSize / constants.baseCellSize; // Ensure minimum visibility
+    const emptyFill = appearance.fillColor;
+    const emptyBorder = appearance.borderColor;
+    const emptyPattern = appearance.pattern;
 
     ctx.fillStyle = emptyFill;
     ctx.strokeStyle = emptyBorder;
@@ -1402,15 +1985,16 @@ export class CanvasManager {
     for (let i = startX; i < endX; i++) {
       for (let j = startY; j < endY; j++) {
         const cellId = this._cellId(i, j);
-        // Check if *any* VISIBLE layer has this cell filled
-        const isFilled = this.layers.some((layer) => layer.visible && layer.objects.has(cellId));
-
-        if (!isFilled) {
+        {
           const x = i * cellSize;
           const y = j * cellSize;
           // Draw empty cell appearance
           ctx.fillRect(x, y, cellSize, cellSize);
-          if (emptyPattern && emptyPattern.complete && emptyPattern.naturalWidth > 0) {
+          if (
+            emptyPattern &&
+            emptyPattern.complete &&
+            emptyPattern.naturalWidth > 0
+          ) {
             try {
               ctx.drawImage(emptyPattern, x, y, cellSize, cellSize);
             } catch (e) {
@@ -1446,325 +2030,62 @@ export class CanvasManager {
    * @param {string} shadowOptions.color - The shadow color in #RRGGBBAA format (e.g., "#00000080").
    */
   drawGridShadows(ctx, cellSize, viewBounds, layerObjects, shadowOptions) {
-    if (!shadowOptions || !shadowOptions.enabled || !layerObjects || layerObjects.size === 0) {
-        return; // Exit if shadows disabled for this layer or layer is empty
-    }
-
-    const angleRad = (shadowOptions.angle * Math.PI) / 180;
-    const offsetPixels = shadowOptions.offset * cellSize;
-    const baseShadowColor = shadowOptions.color.substring(0, 7); // Get #RRGGBB
-    const shadowAlpha = parseInt(shadowOptions.color.substring(7, 9) || '80', 16) / 255; // Get alpha (default 0.5 if missing)
-
-    const vo = { x: Math.cos(angleRad) * offsetPixels, y: Math.sin(angleRad) * offsetPixels }; // Vector offset
-    if (Math.abs(vo.x) < 1e-6 && Math.abs(vo.y) < 1e-6) return; // No offset, no shadow
-
-    // Create Temporary Offscreen Canvas for Shadows
-    // Calculate pixel dimensions of the view
-    const viewWidthPixels = Math.max(1, Math.ceil((viewBounds.maxX - viewBounds.minX) * this.scale));
-    const viewHeightPixels = Math.max(1, Math.ceil((viewBounds.maxY - viewBounds.minY) * this.scale));
-
-    // TODO: use a static or pooled canvas for performance
-    // Create offscreen canvas
-    const shadowCanvas = document.createElement('canvas');
-    shadowCanvas.width = viewWidthPixels;
-    shadowCanvas.height = viewHeightPixels;
-    const shadowCtx = shadowCanvas.getContext('2d', { alpha: true }); // Ensure alpha channel
-
-    if (!shadowCtx) {
-        console.error("Failed to create shadow buffer context");
-        return;
-    }
-
-    // Prepare Shadow Context Transform
-    // We want to draw world coordinates onto this buffer.
-    // The buffer's (0,0) pixel corresponds to world coordinate (viewBounds.minX, viewBounds.minY).
-    // Transform should map world coords to buffer pixel coords.
-    shadowCtx.scale(this.scale, this.scale);
-    shadowCtx.translate(-viewBounds.minX, -viewBounds.minY);
-    shadowCtx.fillStyle = baseShadowColor; // Opaque color for drawing fragments
-
-    // Calculate visible cell range for culling (using indices)
-    const startXIdx = Math.floor(viewBounds.minX / cellSize) - 1;
-    const startYIdx = Math.floor(viewBounds.minY / cellSize) - 1;
-    const endXIdx = Math.ceil(viewBounds.maxX / cellSize) + 1;
-    const endYIdx = Math.ceil(viewBounds.maxY / cellSize) + 1;
-
-    // Draw Shadow Fragments to Offscreen Buffer
-    // Use the passed 'layerObjects' map here
-    layerObjects.forEach((cell) => {
-        // Cull check for the cell itself (using indices)
-        if (cell.x < startXIdx || cell.x > endXIdx || cell.y < startYIdx || cell.y > endYIdx) return;
-
-        const cx = cell.x; const cy = cell.y;
-        const x1 = cx * cellSize; const y1 = cy * cellSize;
-        const x2 = x1 + cellSize; const y2 = y1 + cellSize;
-
-        // Corners and offset corners (same calculation as before)
-        const TL = { x: x1, y: y1 }; const TR = { x: x2, y: y1 };
-        const BR = { x: x2, y: y2 }; const BL = { x: x1, y: y2 };
-        const TL_off = { x: TL.x + vo.x, y: TL.y + vo.y }; const TR_off = { x: TR.x + vo.x, y: TR.y + vo.y };
-        const BR_off = { x: BR.x + vo.x, y: BR.y + vo.y }; const BL_off = { x: BL.x + vo.x, y: BL.y + vo.y };
-
-        // Check 8 neighbors (currently, we assume 1-cell shadows or less).
-        for (let dy = -1; dy <= 1; dy++) {
-            for (let dx = -1; dx <= 1; dx++) {
-                if (dx === 0 && dy === 0) continue; // Skip self
-                const nx = cx + dx; const ny = cy + dy;
-                const neighborId = this._cellId(nx, ny);
-
-                // Check emptiness based on the *passed* layerObjects
-                if (!layerObjects.has(neighborId)) {
-                    // Cull check for the neighbor cell (using indices)
-                    if (nx < startXIdx || nx > endXIdx || ny < startYIdx || ny > endYIdx) continue;
-
-                    const shadowDir = { x: dx, y: dy };
-                    const dotProduct = shadowDir.x * vo.x + shadowDir.y * vo.y;
-
-                    if (dotProduct > 1e-6) { // Cast shadow?
-                        let shadowPolygon = [];
-                        // Define polygon based on neighbor position (dx, dy)
-                        if (dx === 0 && dy === -1) shadowPolygon = [TL, TR, TR_off, TL_off];         // Top
-                        else if (dx === 1 && dy === 0) shadowPolygon = [TR, BR, BR_off, TR_off];      // Right
-                        else if (dx === 0 && dy === 1) shadowPolygon = [BR, BL, BL_off, BR_off];      // Bottom
-                        else if (dx === -1 && dy === 0) shadowPolygon = [BL, TL, TL_off, BL_off];     // Left
-                        else if (dx === 1 && dy === -1) shadowPolygon = [TR, { x: TR_off.x, y: TR.y }, TR_off, { x: TR.x, y: TR_off.y }]; // Top-Right
-                        else if (dx === 1 && dy === 1) shadowPolygon = [BR, { x: BR_off.x, y: BR.y }, BR_off, { x: BR.x, y: BR_off.y }]; // Bottom-Right
-                        else if (dx === -1 && dy === 1) shadowPolygon = [BL, { x: BL_off.x, y: BL.y }, BL_off, { x: BL.x, y: BL_off.y }]; // Bottom-Left
-                        else if (dx === -1 && dy === -1) shadowPolygon = [TL, { x: TL_off.x, y: TL.y }, TL_off, { x: TL.x, y: TL_off.y }]; // Top-Left
-
-                        if (shadowPolygon.length > 0) {
-                            // Draw fragment onto the SHADOW context (already transformed)
-                            // Clipping is still needed to contain fragment within neighbor cell
-                            shadowCtx.save();
-                            shadowCtx.beginPath();
-                            // Clip using world coordinates on the shadow context
-                            shadowCtx.rect(nx * cellSize, ny * cellSize, cellSize, cellSize);
-                            shadowCtx.clip();
-
-                            shadowCtx.beginPath();
-                            shadowPolygon.forEach((p, i) => { if (i === 0) shadowCtx.moveTo(p.x, p.y); else shadowCtx.lineTo(p.x, p.y); });
-                            shadowCtx.closePath();
-                            shadowCtx.fill(); // Fill on shadow buffer
-
-                            shadowCtx.restore();
-                        }
-                    }
-                }
-            }
-        }
-    });
-
-    // Draw Shadow Buffer to Main Canvas
-    ctx.save();
-    ctx.globalAlpha = shadowAlpha; // Apply user-defined transparency
-
-    // The main context 'ctx' is already transformed (scaled and translated by offsetX/Y).
-    // We need to draw the shadow buffer (which contains the correctly scaled and positioned shadows
-    // relative to the viewBounds origin) at the correct location *within this transformed space*.
-    // The top-left of the buffer corresponds to world coordinate (viewBounds.minX, viewBounds.minY).
-    // So, we draw the image at these world coordinates.
-    ctx.drawImage(shadowCanvas,
-        viewBounds.minX, // Destination X in world coordinates
-        viewBounds.minY, // Destination Y in world coordinates
-        viewBounds.maxX - viewBounds.minX, // Width in world coordinates
-        viewBounds.maxY - viewBounds.minY  // Height in world coordinates
+    if (!shadowOptions?.enabled || !layerObjects.size) return;
+    const casters = new Map(
+      [...layerObjects].filter(([, cell]) => cell.castsShadow !== false),
     );
-
-    ctx.restore(); // Restore alpha and any other saved state
-  }
-
-  /**
-   * Basically drawGridShadows() but for the PDF export.
-   * Draws shadows for all grid cells based on the provided layer objects and shadow options.
-   * This function creates an offscreen canvas to render shadows and then draws the result
-   * onto the main context. Shadows are calculated based on the logical positions of cells
-   * and their neighbors. It currently supports shadows of 1-cell size or less.
-   *
-   * @param {CanvasRenderingContext2D} ctx - The rendering context of the target canvas.
-   * @param {number} logicalCellSize - The size of a single logical grid cell in pixels.
-   * @param {Map<string, Object>} layerObjects - A map of objects in the layer, keyed by their unique cell IDs.
-   * @param {Object} shadowOptions - Configuration options for the shadows.
-   * @param {boolean} shadowOptions.enabled - Whether shadows are enabled for this layer.
-   * @param {number} shadowOptions.angle - The angle of the shadow in degrees (0 = right, 90 = down).
-   * @param {number} shadowOptions.offset - The shadow offset as a multiple of the cell size.
-   * @param {string} shadowOptions.color - The shadow color in #RRGGBBAA format (e.g., "#00000080").
-   */
-  drawAllGridShadows(ctx, logicalCellSize, layerObjects, shadowOptions) {
-    // Operates on passed layerObjects and shadowOptions
-    if (!shadowOptions || !shadowOptions.enabled || !layerObjects || layerObjects.size === 0) return;
-
-    const angleRad = (shadowOptions.angle * Math.PI) / 180;
-    const offsetLogical = shadowOptions.offset * logicalCellSize;
-    const baseShadowColor = shadowOptions.color.substring(0, 7); // Get #RRGGBB
-    const shadowAlpha = parseInt(shadowOptions.color.substring(7, 9) || '80', 16) / 255; // Get alpha
-
-    const vo = { x: Math.cos(angleRad) * offsetLogical, y: Math.sin(angleRad) * offsetLogical };
-    if (Math.abs(vo.x) < 1e-6 && Math.abs(vo.y) < 1e-6) return; // No offset, no shadow
-
-    // Create Temporary Offscreen Canvas for Shadows
-    // Match the target PDF context's canvas size
-    const shadowCanvas = document.createElement('canvas');
-    shadowCanvas.width = ctx.canvas.width;
-    shadowCanvas.height = ctx.canvas.height;
-    const shadowCtx = shadowCanvas.getContext('2d', { alpha: true });
-
-    if (!shadowCtx) {
-        console.error("PDF Export: Failed to create shadow buffer context");
-        return;
+    if (!casters.size) return;
+    const angle = (shadowOptions.angle * Math.PI) / 180,
+      dx = Math.cos(angle) * shadowOptions.offset * cellSize,
+      dy = Math.sin(angle) * shadowOptions.offset * cellSize;
+    const buffer = document.createElement("canvas");
+    buffer.width = ctx.canvas.width;
+    buffer.height = ctx.canvas.height;
+    const shadow = buffer.getContext("2d");
+    shadow.setTransform(ctx.getTransform());
+    shadow.fillStyle = shadowOptions.color;
+    shadow.beginPath();
+    for (const cell of casters.values()) {
+      const x = cell.x * cellSize,
+        y = cell.y * cellSize;
+      shadow.rect(x + dx, y + dy, cellSize, cellSize);
     }
-
-    // Prepare Shadow Context Transform
-    // Make shadow context's coordinate system identical to the main PDF context's
-    const transform = ctx.getTransform();
-    shadowCtx.setTransform(transform);
-    shadowCtx.fillStyle = baseShadowColor; // Opaque color
-
-    // Draw Shadow Fragments to Offscreen Buffer (Logical Coords)
-    // Use passed 'layerObjects'
-    layerObjects.forEach((cell) => {
-        const cx = cell.x; const cy = cell.y;
-        const x1 = cx * logicalCellSize; const y1 = cy * logicalCellSize;
-        const x2 = x1 + logicalCellSize; const y2 = y1 + logicalCellSize;
-
-        // Corners and offset corners (logical)
-        const TL = { x: x1, y: y1 }; const TR = { x: x2, y: y1 };
-        const BR = { x: x2, y: y2 }; const BL = { x: x1, y: y2 };
-        const TL_off = { x: TL.x + vo.x, y: TL.y + vo.y }; const TR_off = { x: TR.x + vo.x, y: TR.y + vo.y };
-        const BR_off = { x: BR.x + vo.x, y: BR.y + vo.y }; const BL_off = { x: BL.x + vo.x, y: BL.y + vo.y };
-
-        // Check 8 neighbors
-        for (let dy = -1; dy <= 1; dy++) {
-            for (let dx = -1; dx <= 1; dx++) {
-                if (dx === 0 && dy === 0) continue; // Skip self
-                const nx = cx + dx; const ny = cy + dy;
-                const neighborId = this._cellId(nx, ny);
-
-                // Check emptiness based on passed layerObjects
-                if (!layerObjects.has(neighborId)) {
-                    const shadowDir = { x: dx, y: dy };
-                    const dotProduct = shadowDir.x * vo.x + shadowDir.y * vo.y;
-
-                    if (dotProduct > 1e-6) { // Cast shadow?
-                        let shadowPolygon = [];
-                        // Define polygon based on neighbor position (dx, dy)
-                        if (dx === 0 && dy === -1) shadowPolygon = [TL, TR, TR_off, TL_off];         // Top
-                        else if (dx === 1 && dy === 0) shadowPolygon = [TR, BR, BR_off, TR_off];      // Right
-                        else if (dx === 0 && dy === 1) shadowPolygon = [BR, BL, BL_off, BR_off];      // Bottom
-                        else if (dx === -1 && dy === 0) shadowPolygon = [BL, TL, TL_off, BL_off];     // Left
-                        else if (dx === 1 && dy === -1) shadowPolygon = [TR, { x: TR_off.x, y: TR.y }, TR_off, { x: TR.x, y: TR_off.y }]; // Top-Right
-                        else if (dx === 1 && dy === 1) shadowPolygon = [BR, { x: BR_off.x, y: BR.y }, BR_off, { x: BR.x, y: BR_off.y }]; // Bottom-Right
-                        else if (dx === -1 && dy === 1) shadowPolygon = [BL, { x: BL_off.x, y: BL.y }, BL_off, { x: BL.x, y: BL_off.y }]; // Bottom-Left
-                        else if (dx === -1 && dy === -1) shadowPolygon = [TL, { x: TL_off.x, y: TL.y }, TL_off, { x: TL.x, y: TL_off.y }]; // Top-Left
-
-                        if (shadowPolygon.length > 0) {
-                            // Draw fragment onto the SHADOW context (already transformed)
-                            shadowCtx.save();
-                            shadowCtx.beginPath();
-                            // Clip using logical coordinates on the shadow context
-                            shadowCtx.rect(nx * logicalCellSize, ny * logicalCellSize, logicalCellSize, logicalCellSize);
-                            shadowCtx.clip();
-
-                            shadowCtx.beginPath();
-                            shadowPolygon.forEach((p, i) => { if (i === 0) shadowCtx.moveTo(p.x, p.y); else shadowCtx.lineTo(p.x, p.y); });
-                            shadowCtx.closePath();
-                            shadowCtx.fill(); // Fill on shadow buffer
-
-                            shadowCtx.restore();
-                        }
-                    }
-                }
-            }
-        }
-    });
-
-    // Draw Shadow Buffer to Main PDF Context
+    for (const { a, b } of gridEdges(casters, cellSize)) {
+      const points =
+        (b.x - a.x) * dy - (b.y - a.y) * dx >= 0
+          ? [a, b, { x: b.x + dx, y: b.y + dy }, { x: a.x + dx, y: a.y + dy }]
+          : [b, a, { x: a.x + dx, y: a.y + dy }, { x: b.x + dx, y: b.y + dy }];
+      points.forEach((p, i) =>
+        i ? shadow.lineTo(p.x, p.y) : shadow.moveTo(p.x, p.y),
+      );
+      shadow.closePath();
+    }
+    shadow.fill();
+    if (shadowOptions.softness) {
+      const blurred = document.createElement("canvas");
+      blurred.width = buffer.width;
+      blurred.height = buffer.height;
+      const blur = blurred.getContext("2d");
+      const transform = shadow.getTransform();
+      blur.filter = `blur(${shadowOptions.softness * cellSize * Math.hypot(transform.a, transform.b)}px)`;
+      blur.drawImage(buffer, 0, 0);
+      shadow.save();
+      shadow.resetTransform();
+      shadow.clearRect(0, 0, buffer.width, buffer.height);
+      shadow.drawImage(blurred, 0, 0);
+      shadow.restore();
+    }
+    shadow.globalCompositeOperation = "destination-out";
+    shadow.fillStyle = "#000";
+    shadow.beginPath();
+    for (const cell of layerObjects.values())
+      if ((cell.receivesGlobalShadow ?? cell.receivesShadow) !== true)
+        shadow.rect(cell.x * cellSize, cell.y * cellSize, cellSize, cellSize);
+    shadow.fill();
     ctx.save();
-    ctx.globalAlpha = shadowAlpha; // Apply user-defined transparency
-
-    // The target context 'ctx' for PDF is already transformed (scaled, translated).
-    // The shadow buffer 'shadowCanvas' was drawn using the same transform.
-    // We need to draw the buffer onto the target context. Since the coordinate
-    // systems match, drawing the buffer at (0,0) *relative to the current transform*
-    // is not correct. We need to draw it at (0,0) in the *untransformed* space.
-    ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform
-    ctx.drawImage(shadowCanvas, 0, 0); // Draw buffer at origin
-    // Restore original transform AND alpha
+    ctx.resetTransform();
+    ctx.drawImage(buffer, 0, 0);
     ctx.restore();
-  }
-
-  /**
-   * Draws grid borders around filled cells of the specified layer on a canvas.
-   * Borders are drawn adjacent to empty neighboring cells within the view bounds.
-   * 
-   * @param {CanvasRenderingContext2D} ctx - The canvas rendering context used for drawing.
-   * @param {number} cellSize - The size of each grid cell in pixels.
-   * @param {Object} viewBounds - The visible bounds of the canvas, containing `minX`, `minY`, `maxX`, and `maxY` properties.
-   * @param {Set<Object>} layerObjects - A set of objects representing filled cells in the current layer. Each object should have `x` and `y` properties.
-   */
-  drawGridBorders(ctx, cellSize, viewBounds, layerObjects) {
-    // This function now uses the passed 'layerObjects' to determine
-    // where borders should be drawn (adjacent to filled cells of *this* layer).
-    // The global 'this.gridBorderOptions' is still used for image and enabled status.
-
-    const borderImage = this.gridBorderOptions.image;
-    // Check if borders are globally enabled and image exists
-    if (!this.gridBorderOptions.enabled || !borderImage || !borderImage.complete || borderImage.naturalWidth === 0) return;
-    // Check if the passed layer has objects
-    if (!layerObjects || layerObjects.size === 0) return;
-
-    const borderThickness = cellSize * 0.25; // Example thickness
-    const startXIdx = Math.floor(viewBounds.minX / cellSize) - 1;
-    const startYIdx = Math.floor(viewBounds.minY / cellSize) - 1;
-    const endXIdx = Math.ceil(viewBounds.maxX / cellSize) + 1;
-    const endYIdx = Math.ceil(viewBounds.maxY / cellSize) + 1;
-
-    // Iterate through filled cells of the *passed layer*
-    layerObjects.forEach((cell) => {
-        // Cull check for the cell itself
-        if (cell.x < startXIdx || cell.x > endXIdx || cell.y < startYIdx || cell.y > endYIdx) return;
-
-        const cx = cell.x; const cy = cell.y;
-
-        const neighbors = [
-            { dx: 0, dy: -1, edge: "top" }, { dx: 1, dy: 0, edge: "right" },
-            { dx: 0, dy: 1, edge: "bottom" }, { dx: -1, dy: 0, edge: "left" },
-        ];
-
-        neighbors.forEach((neighbor) => {
-            const nx = cx + neighbor.dx; const ny = cy + neighbor.dy;
-            const neighborId = this._cellId(nx, ny);
-
-            // Check if the neighbor cell is EMPTY *in this layer*
-            if (!layerObjects.has(neighborId)) {
-                // Cull check for the neighbor cell
-                if (nx < startXIdx || nx > endXIdx || ny < startYIdx || ny > endYIdx) return;
-
-                let drawX, drawY, drawW, drawH;
-                const neighborX = nx * cellSize;
-                const neighborY = ny * cellSize;
-
-                // Position the border *inside* the empty neighbor cell, along the edge
-                switch (neighbor.edge) {
-                    case "top":    drawX = neighborX; drawY = neighborY + cellSize - borderThickness; drawW = cellSize; drawH = borderThickness; break;
-                    case "right":  drawX = neighborX; drawY = neighborY; drawW = borderThickness; drawH = cellSize; break;
-                    case "bottom": drawX = neighborX; drawY = neighborY; drawW = cellSize; drawH = borderThickness; break;
-                    case "left":   drawX = neighborX + cellSize - borderThickness; drawY = neighborY; drawW = borderThickness; drawH = cellSize; break;
-                }
-
-                ctx.save();
-                try {
-                    ctx.beginPath(); ctx.rect(drawX, drawY, drawW, drawH); ctx.clip();
-                    // Draw image tiled or stretched - Stretching for simplicity
-                    ctx.drawImage(borderImage, drawX, drawY, drawW, drawH);
-                } catch (e) {
-                    console.error("Error drawing border image:", e);
-                    ctx.fillStyle = constants.attentionColor; // Fallback
-                    ctx.fillRect(drawX, drawY, drawW, drawH);
-                }
-                ctx.restore();
-            }
-        });
-    });
   }
 
   /**
@@ -1779,29 +2100,63 @@ export class CanvasManager {
    * @param {string} [cell.imageSrc] - The source URL of the image (used for error logging).
    * @param {string} cell.borderColor - The color of the cell's border.
    */
+  drawLightMarker(obj) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.fillStyle = obj.color;
+    ctx.strokeStyle = "#254e86";
+    ctx.lineWidth = 2 / this.scale;
+    ctx.beginPath();
+    ctx.arc(obj.x, obj.y, 7 / this.scale, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
   drawGridCell(cell) {
     const ctx = this.ctx;
     const x = cell.x * this.currentCellSize;
     const y = cell.y * this.currentCellSize;
     const size = this.currentCellSize;
+    ctx.save();
+    ctx.globalAlpha *= Math.max(0, Math.min(1, cell.opacity ?? 1));
 
     if (cell.type === "color") {
       ctx.fillStyle = cell.fillColor;
       ctx.fillRect(x, y, size, size);
-    } else if (cell.type === "image" && cell.image && cell.image.complete && cell.image.naturalWidth > 0) {
+    } else if (
+      cell.type === "image" &&
+      cell.image &&
+      cell.image.complete &&
+      cell.image.naturalWidth > 0
+    ) {
       try {
-        ctx.drawImage(cell.image, x, y, size, size);
+        ctx.save();
+        ctx.translate(x + size / 2, y + size / 2);
+        ctx.rotate(cell.textureRotation || 0);
+        ctx.scale(cell.textureMirrorX ? -1 : 1, cell.textureMirrorY ? -1 : 1);
+        if (
+          cell.hueShift ||
+          (cell.saturation ?? 1) !== 1 ||
+          (cell.brightness ?? 1) !== 1 ||
+          (cell.contrast ?? 1) !== 1
+        )
+          ctx.filter = `hue-rotate(${cell.hueShift || 0}deg) saturate(${cell.saturation ?? 1}) brightness(${cell.brightness ?? 1}) contrast(${cell.contrast ?? 1})`;
+        ctx.drawImage(cell.image, -size / 2, -size / 2, size, size);
+        ctx.restore();
       } catch (e) {
         console.error("Error drawing grid cell image:", e, cell.imageSrc);
         // Draw fallback color if image fails
-        ctx.fillStyle = constants.errorColor || '#ff00ff'; // Magenta fallback
+        ctx.fillStyle = constants.errorColor || "#ff00ff"; // Magenta fallback
         ctx.fillRect(x, y, size, size);
       }
     }
     // Draw border for the cell itself
     ctx.strokeStyle = cell.borderColor;
-    ctx.lineWidth = Math.max(0.5, 1 / this.scale); // Use same line width as grid
-    ctx.strokeRect(x, y, size, size);
+    ctx.lineWidth = this.currentCellSize / constants.baseCellSize; // Use same line width as grid
+    if (cell.outlineEnabled ?? cell.type !== "image")
+      ctx.strokeRect(x, y, size, size);
+    ctx.restore();
   }
 
   /**
@@ -1819,30 +2174,33 @@ export class CanvasManager {
   drawFreeDrawObject(obj) {
     const ctx = this.ctx;
     ctx.save();
-    ctx.lineWidth = Math.max(0.5, 1 / this.scale); // Consistent line width
+    ctx.translate(obj.x, obj.y);
+    ctx.rotate(obj.rotation || 0);
+    ctx.scale(obj.mirrorX ? -1 : 1, obj.mirrorY ? -1 : 1);
+    ctx.lineWidth = this.currentCellSize / constants.baseCellSize; // Consistent line width
 
     if (obj.image && obj.image.complete && obj.image.naturalWidth > 0) {
       try {
         // Draw image centered at obj.x, obj.y with obj.size
         ctx.drawImage(
           obj.image,
-          obj.x - obj.size / 2,
-          obj.y - obj.size / 2,
+          -obj.size / 2,
+          -obj.size / 2,
           obj.size,
-          obj.size
+          obj.size,
         );
       } catch (e) {
         console.error("Error drawing freeDraw image:", e);
         // Fallback shape
-        ctx.fillStyle = constants.errorColor || '#ff00ff';
+        ctx.fillStyle = constants.errorColor || "#ff00ff";
         ctx.beginPath();
-        ctx.arc(obj.x, obj.y, obj.size / 2, 0, 2 * Math.PI);
+        ctx.arc(0, 0, obj.size / 2, 0, 2 * Math.PI);
         ctx.fill();
       }
     } else {
       // Draw default circle shape
       ctx.beginPath();
-      ctx.arc(obj.x, obj.y, obj.size / 2, 0, 2 * Math.PI);
+      ctx.arc(0, 0, obj.size / 2, 0, 2 * Math.PI);
       ctx.fillStyle = obj.fillColor;
       ctx.fill();
       ctx.strokeStyle = obj.strokeColor;
@@ -1852,7 +2210,7 @@ export class CanvasManager {
   }
 
   /**
-   * Draws a custom object on the canvas, including handling rotation, translation, 
+   * Draws a custom object on the canvas, including handling rotation, translation,
    * and fallback rendering if the object's image is not available or fails to load.
    *
    * @param {Object} obj - The object to be drawn.
@@ -1870,6 +2228,7 @@ export class CanvasManager {
     // Translate to the object's center and rotate
     ctx.translate(obj.x, obj.y);
     ctx.rotate(obj.rotation); // Rotation is in radians
+    ctx.scale(obj.mirrorX ? -1 : 1, obj.mirrorY ? -1 : 1);
 
     if (obj.image && obj.image.complete && obj.image.naturalWidth > 0) {
       try {
@@ -1879,19 +2238,19 @@ export class CanvasManager {
           -obj.width / 2,
           -obj.height / 2,
           obj.width,
-          obj.height
+          obj.height,
         );
       } catch (e) {
         console.error("Error drawing custom object image:", e, obj.imageSrc);
         // Fallback rectangle
-        ctx.fillStyle = constants.errorColor || '#ff00ff';
+        ctx.fillStyle = constants.errorColor || "#ff00ff";
         ctx.fillRect(-obj.width / 2, -obj.height / 2, obj.width, obj.height);
       }
     } else {
       // Draw a placeholder if no image or image failed to load
       ctx.fillStyle = constants.attentionColor; // Use attention color for placeholder
       ctx.fillRect(-obj.width / 2, -obj.height / 2, obj.width, obj.height);
-      ctx.strokeStyle = '#000000';
+      ctx.strokeStyle = "#000000";
       ctx.lineWidth = 1 / this.scale;
       ctx.strokeRect(-obj.width / 2, -obj.height / 2, obj.width, obj.height);
     }
@@ -1938,9 +2297,11 @@ export class CanvasManager {
    */
   drawSelectionHighlights() {
     const ctx = this.ctx;
-    if (this.selectedObjects.grid.length === 0 &&
-        this.selectedObjects.free.length === 0 &&
-        this.selectedObjects.custom.length === 0) {
+    if (
+      this.selectedObjects.grid.length === 0 &&
+      this.selectedObjects.free.length === 0 &&
+      this.selectedObjects.custom.length === 0
+    ) {
       return; // Nothing selected
     }
 
@@ -1951,18 +2312,38 @@ export class CanvasManager {
 
     const activeLayerObjects = this.layers[this.activeLayerIndex]?.objects;
 
+    if (!this.layers[this.activeLayerIndex]?.visible) {
+      ctx.restore();
+      return;
+    }
     // Highlight Grid Cells
     if (activeLayerObjects) {
-        this.selectedObjects.grid.forEach((cellId) => {
-            const cell = activeLayerObjects.get(cellId);
-            if (cell) {
-                const x = cell.x * this.currentCellSize;
-                const y = cell.y * this.currentCellSize;
-                ctx.strokeRect(x, y, this.currentCellSize, this.currentCellSize);
-            }
-        });
+      this.selectedObjects.grid.forEach((cellId) => {
+        const cell = activeLayerObjects.get(cellId);
+        if (cell) {
+          const x = cell.x * this.currentCellSize;
+          const y = cell.y * this.currentCellSize;
+          ctx.strokeRect(x, y, this.currentCellSize, this.currentCellSize);
+        }
+      });
     }
 
+    const group = this.selectionGroup();
+    if (group) {
+      ctx.save();
+      ctx.translate(group.x, group.y);
+      ctx.rotate(group.rotation);
+      ctx.strokeRect(
+        -group.width / 2,
+        -group.height / 2,
+        group.width,
+        group.height,
+      );
+      ctx.restore();
+      this.drawHandles(group);
+      ctx.restore();
+      return;
+    }
     // Highlight Free Draw Objects
     this.selectedObjects.free.forEach((id) => {
       const obj = this.freeDrawObjects.get(id);
@@ -1981,14 +2362,9 @@ export class CanvasManager {
         ctx.save();
         ctx.translate(obj.x, obj.y);
         ctx.rotate(obj.rotation);
-        ctx.strokeRect(
-          -obj.width / 2,
-          -obj.height / 2,
-          obj.width,
-          obj.height
-        );
+        ctx.strokeRect(-obj.width / 2, -obj.height / 2, obj.width, obj.height);
         ctx.restore();
-        // TODO: Add resize/rotate handles here later
+        this.drawHandles(obj);
       }
     });
 
@@ -1997,7 +2373,7 @@ export class CanvasManager {
 
   /**
    * Calculates the logical bounding box of all objects on the canvas.
-   * The bounding box is determined based on grid cells, free draw objects, 
+   * The bounding box is determined based on grid cells, free draw objects,
    * and custom objects, with their coordinates converted to logical units.
    * If no content is present, a default bounding box of 10x10 cells is returned.
    *
@@ -2009,306 +2385,111 @@ export class CanvasManager {
    *   - {number} width - The width of the bounding box (maxX - minX).
    *   - {number} height - The height of the bounding box (maxY - minY).
    */
-  getLogicalBoundingBox() {
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    let hasContent = false;
-
-    // Grid cells (use cell indices directly)
+  getLogicalBoundingBox({
+    includeLights = false,
+    includeObjects = true,
+    padding = this.exportSettings?.padding ?? 1,
+  } = {}) {
+    const size = this.currentCellSize,
+      points = [];
     this.layers.forEach((layer) => {
-      layer.objects.forEach((cell) => {
-        minX = Math.min(minX, cell.x);
-        minY = Math.min(minY, cell.y);
-        maxX = Math.max(maxX, cell.x + 1); // Use x+1, y+1 for extent
-        maxY = Math.max(maxY, cell.y + 1);
-        hasContent = true;
-      });
+      const global = { ...ambientDefaults, ...layer.globalLight };
+      if (!layer.visible) return;
+      for (const cell of layer.objects.values()) {
+        points.push(
+          { x: cell.x * size, y: cell.y * size },
+          { x: (cell.x + 1) * size, y: (cell.y + 1) * size },
+        );
+        if (cell.castsShadow === false) continue;
+        const shadows = [layer.gridShadowOptions];
+        if (global.globalEnabled)
+          shadows.push({
+            enabled: true,
+            angle: global.angle,
+            offset: global.shadowLength,
+            softness: global.shadowSoftness,
+          });
+        for (const shadow of shadows)
+          if (shadow?.enabled) {
+            const angle = (shadow.angle * Math.PI) / 180,
+              dx = Math.cos(angle) * shadow.offset * size,
+              dy = Math.sin(angle) * shadow.offset * size,
+              blur = (shadow.softness || 0) * size * 3;
+            points.push(
+              { x: cell.x * size + dx - blur, y: cell.y * size + dy - blur },
+              {
+                x: (cell.x + 1) * size + dx + blur,
+                y: (cell.y + 1) * size + dy + blur,
+              },
+            );
+          }
+      }
     });
-
-    // Free draw objects (convert pixel coords to logical)
-    this.freeDrawObjects.forEach((obj) => {
-      const lx = obj.x / this.currentCellSize;
-      const ly = obj.y / this.currentCellSize;
-      const lRadius = (obj.size / 2) / this.currentCellSize;
-      minX = Math.min(minX, lx - lRadius);
-      minY = Math.min(minY, ly - lRadius);
-      maxX = Math.max(maxX, lx + lRadius);
-      maxY = Math.max(maxY, ly + lRadius);
-      hasContent = true;
-    });
-
-    // Custom objects (convert pixel coords to logical)
-    // Note: This uses AABB, ignoring rotation for bounding box calculation.
-    // A more accurate calculation would involve rotated corners.
-    this.customObjects.forEach((obj) => {
-      const lx = obj.x / this.currentCellSize;
-      const ly = obj.y / this.currentCellSize;
-      const lWidth = obj.width / this.currentCellSize;
-      const lHeight = obj.height / this.currentCellSize;
-      // Approximate bounds using AABB
-      const halfDiag = Math.sqrt(lWidth*lWidth + lHeight*lHeight) / 2;
-      minX = Math.min(minX, lx - halfDiag);
-      minY = Math.min(minY, ly - halfDiag);
-      maxX = Math.max(maxX, lx + halfDiag);
-      maxY = Math.max(maxY, ly + halfDiag);
-      hasContent = true;
-    });
-
-    // If nothing was drawn, return a small default area (e.g., 10x10 cells)
-    if (!hasContent) {
+    for (const obj of this.freeDrawObjects.values())
+      if (includeObjects && this.layers[obj.layerIndex]?.visible)
+        points.push(
+          ...corners({
+            ...obj,
+            width: obj.size,
+            height: obj.size,
+            rotation: obj.rotation || 0,
+          }),
+        );
+    for (const obj of this.customObjects.values())
+      if (this.layers[obj.layerIndex]?.visible) {
+        if (obj.type === "light" && includeLights)
+          points.push(
+            { x: obj.x - obj.radius * size, y: obj.y - obj.radius * size },
+            { x: obj.x + obj.radius * size, y: obj.y + obj.radius * size },
+          );
+        else if (obj.type !== "light" && includeObjects)
+          points.push(...corners(obj));
+      }
+    if (!points.length)
       return { minX: 0, minY: 0, maxX: 10, maxY: 10, width: 10, height: 10 };
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
+    for (const p of points) {
+      minX = Math.min(minX, p.x / size);
+      minY = Math.min(minY, p.y / size);
+      maxX = Math.max(maxX, p.x / size);
+      maxY = Math.max(maxY, p.y / size);
     }
-
-    // Add a small padding (e.g., 1 cell)
-    const padding = 1;
+    padding = Math.max(
+      Math.max(0, Math.min(10, Number(padding) || 0)),
+      ...this.layers
+        .filter((l) => l.visible)
+        .map((l) =>
+          l.gridBorderOptions?.enabled ? l.gridBorderOptions.width : 0,
+        ),
+    );
     minX -= padding;
     minY -= padding;
     maxX += padding;
     maxY += padding;
-
     return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
   }
 
-  /**
-   * Draws a PDF background and grid on a canvas context within a specified bounding box.
-   *
-   * @param {CanvasRenderingContext2D} ctx - The canvas rendering context to draw on.
-   * @param {Object} bbox - The bounding box defining the area to draw.
-   * @param {number} bbox.minX - The minimum X-coordinate of the bounding box.
-   * @param {number} bbox.minY - The minimum Y-coordinate of the bounding box.
-   * @param {number} bbox.maxX - The maximum X-coordinate of the bounding box.
-   * @param {number} bbox.maxY - The maximum Y-coordinate of the bounding box.
-   * @param {number} bbox.width - The width of the bounding box.
-   * @param {number} bbox.height - The height of the bounding box.
-
-   * This function performs the following:
-   * 1. Fills the bounding box area with a background color.
-   * 2. Optionally overlays a repeating image pattern if provided.
-   * 3. Draws a grid of vertical and horizontal lines within the bounding box.
-   *
-   * The grid lines are styled using the `emptyCellSettings.borderColor` or a default value.
-   * The background fill and pattern are styled using `emptyCellSettings.fillColor` and
-   * `emptyCellSettings.pattern` respectively.
-   */
-  drawPdfBackgroundAndGrid(ctx, bbox) {
-    const startX = bbox.minX;
-    const startY = bbox.minY;
-    const endX = bbox.maxX; // Use maxX/maxY from bbox
-    const endY = bbox.maxY;
-    const width = bbox.width;
-    const height = bbox.height;
-
-    const emptyFill = this.emptyCellSettings.fillColor || constants.defaultEmptyCellFillColor;
-    const emptyBorder = this.emptyCellSettings.borderColor || constants.defaultEmptyCellBorderColor;
-    const emptyPattern = this.emptyCellSettings.pattern; // The Image object
-
-    // Background Fill
-    ctx.fillStyle = emptyFill;
-    ctx.fillRect(startX, startY, width, height);
-
-    // Background Pattern
-    if (emptyPattern && emptyPattern.complete && emptyPattern.naturalWidth > 0) {
-        ctx.save();
-        // Clip to the bounding box area before drawing pattern
-        ctx.beginPath();
-        ctx.rect(startX, startY, width, height);
-        ctx.clip();
-        try {
-            // Create a pattern from the image
-            const pattern = ctx.createPattern(emptyPattern, 'repeat');
-            if (pattern) {
-                ctx.fillStyle = pattern;
-                // Apply pattern fill.
-                ctx.fillRect(startX, startY, width, height);
-            } else {
-                 console.error("PDF Export: Failed to create empty cell pattern.");
-            }
-        } catch (e) {
-            console.error("PDF Export: Error drawing empty cell pattern:", e);
-        }
-        ctx.restore(); // Remove clip
-    }
-
-    // Grid Lines
-    ctx.strokeStyle = emptyBorder;
-    ctx.lineWidth = 0.02; // Thin line in logical units (adjust as needed)
-    ctx.beginPath();
-    // Draw vertical lines within the bounding box
-    for (let x = Math.ceil(startX); x < endX; x++) { // Use < endX for lines between cells
-      ctx.moveTo(x, startY); ctx.lineTo(x, endY);
-    }
-    // Draw horizontal lines within the bounding box
-    for (let y = Math.ceil(startY); y < endY; y++) { // Use < endY for lines between cells
-      ctx.moveTo(startX, y); ctx.lineTo(endX, y);
-    }
-    ctx.stroke();
-  }
-
-  /**
-   * Draws all elements on the canvas, including background, grid lines, layers, 
-   * grid cells, shadows, borders, free draw objects, and custom objects.
-   *
-   * @param {CanvasRenderingContext2D} ctx - The rendering context for the canvas.
-   * @param {number} exportScale - The scale factor for exporting the canvas. Currently unused.
-   *
-   * This method performs the following steps:
-   * 1. Calculates the logical bounding box of the canvas.
-   * 2. Draws the background and grid lines based on logical coordinates.
-   * 3. Iterates through each layer to draw its content, including:
-   *    - Shadows (if enabled).
-   *    - Borders (if enabled).
-   *    - Grid cells (color or image-based).
-   * 4. Draws global free draw objects, ensuring they are within bounds.
-   * 5. Draws custom objects, applying transformations like rotation and scaling.
-   */
-  drawAll(ctx, exportScale) {
-    const bbox = this.getLogicalBoundingBox();
-    if (bbox.width <= 0 || bbox.height <= 0) return; // Nothing to draw
-
-    const startX = bbox.minX; const startY = bbox.minY;
-    const endX = bbox.maxX; const endY = bbox.maxY;
-
-    // Background and Grid Lines (Logical Coordinates)
-    this.drawPdfBackgroundAndGrid(ctx, bbox); // Use helper
-
-    // Draw Layer Content (Cells, Shadows, Borders)
-    this.layers.forEach((layer) => {
-        // Check layer visibility
-        if (!layer.visible) return;
-
-        const layerObjects = layer.objects;
-        const layerShadowOptions = layer.gridShadowOptions;
-        const logicalCellSize = 1; // Use 1 for logical size
-
-        // Draw Shadows for THIS layer (if enabled)
-        if (layerShadowOptions && layerShadowOptions.enabled && layerObjects.size > 0) {
-            // Pass the specific layer's objects and options to the PDF shadow function
-            this.drawAllGridShadows(ctx, logicalCellSize, layerObjects, layerShadowOptions);
-        }
-
-        // Draw Borders (if enabled - still global)
-        // If borders become per-layer, move this check inside the loop too
-        if (this.gridBorderOptions.enabled && this.gridBorderOptions.image) {
-            // Pass the specific layer's objects to check against
-            this.drawAllGridBorders(ctx, logicalCellSize, layerObjects);
-        }
-
-        // Draw Grid Cells for THIS layer
-        layerObjects.forEach((cell) => {
-            const x = cell.x; const y = cell.y;
-            // Basic check if cell is within bounds
-            if (x + 1 > startX && x < endX && y + 1 > startY && y < endY) {
-                if (cell.type === "color") {
-                  ctx.fillStyle = cell.fillColor;
-                  ctx.fillRect(x, y, 1, 1); // Logical size 1x1
-                } else if (cell.type === "image" && cell.image && cell.image.complete && cell.image.naturalWidth > 0) {
-                  try {
-                    ctx.drawImage(cell.image, x, y, 1, 1); // Logical size 1x1
-                  } catch (e) { console.error("PDF Export: Error drawing grid cell image", e); }
-                }
-                // Draw cell border
-                ctx.strokeStyle = cell.borderColor;
-                ctx.strokeRect(x, y, 1, 1); // Logical size 1x1
-            }
-        });
-    });
-
-    // Draw Global Objects (Free Draw, Custom)
-    this.freeDrawObjects.forEach((obj) => {
-      const lx = obj.x / this.currentCellSize; // Convert to logical
-      const ly = obj.y / this.currentCellSize;
-      const lsize = obj.size / this.currentCellSize;
-      // Basic check if object is within bounds
-      if (lx + lsize/2 > startX && lx - lsize/2 < endX && ly + lsize/2 > startY && ly - lsize/2 < endY) {
-          if (obj.image && obj.image.complete && obj.image.naturalWidth > 0) {
-            try {
-              ctx.drawImage(obj.image, lx - lsize / 2, ly - lsize / 2, lsize, lsize);
-            } catch (e) { console.error("PDF Export: Error drawing freeDraw image", e); }
-          } else {
-            ctx.beginPath(); ctx.arc(lx, ly, lsize / 2, 0, 2 * Math.PI);
-            ctx.fillStyle = obj.fillColor; ctx.fill();
-            ctx.strokeStyle = obj.strokeColor; ctx.stroke();
-          }
-      }
-    });
-    this.customObjects.forEach((obj) => {
-      const lx = obj.x / this.currentCellSize; // Convert to logical
-      const ly = obj.y / this.currentCellSize;
-      const lwidth = obj.width / this.currentCellSize;
-      const lheight = obj.height / this.currentCellSize;
-      // Basic AABB check if object is within bounds
-      if (lx + lwidth/2 > startX && lx - lwidth/2 < endX && ly + lheight/2 > startY && ly - lheight/2 < endY) {
-          ctx.save();
-          ctx.translate(lx, ly); ctx.rotate(obj.rotation);
-          if (obj.image && obj.image.complete && obj.image.naturalWidth > 0) {
-            try {
-              ctx.drawImage(obj.image, -lwidth / 2, -lheight / 2, lwidth, lheight);
-            } catch (e) { console.error("PDF Export: Error drawing custom object image", e); }
-          } else {
-            ctx.fillStyle = constants.attentionColor; // Placeholder
-            ctx.fillRect(-lwidth / 2, -lheight / 2, lwidth, lheight);
-          }
-          ctx.restore();
-      }
-    });
-  }
-
-  /**
-   * Draws all grid borders for a given layer of objects on the canvas.
-   * Borders are drawn only for cells that are adjacent to empty cells in the provided layer.
-   * 
-   * @param {CanvasRenderingContext2D} ctx - The rendering context of the canvas.
-   * @param {number} logicalCellSize - The size of a single logical cell in the grid.
-   * @param {Set<Object>} layerObjects - A set of objects representing the filled cells in the layer.
-   * Each object in the set should have an `x` and `y` property representing its grid coordinates.
-   */
-  drawAllGridBorders(ctx, logicalCellSize, layerObjects) {
-    // Uses passed layerObjects for emptiness check
-    const borderImage = this.gridBorderOptions.image;
-    // Check if borders are globally enabled and image exists
-    if (!this.gridBorderOptions.enabled || !borderImage || !borderImage.complete || !layerObjects || layerObjects.size === 0) return;
-
-    const borderThicknessLogical = logicalCellSize * 0.25; // Logical border thickness
-
-    // Iterate through filled cells of the *passed layer*
-    layerObjects.forEach((cell) => {
-        const cx = cell.x; const cy = cell.y;
-        const neighbors = [
-            { dx: 0, dy: -1, edge: "top" }, { dx: 1, dy: 0, edge: "right" },
-            { dx: 0, dy: 1, edge: "bottom" }, { dx: -1, dy: 0, edge: "left" },
-        ];
-
-        neighbors.forEach((neighbor) => {
-            const nx = cx + neighbor.dx; const ny = cy + neighbor.dy;
-            const neighborId = this._cellId(nx, ny);
-
-            // Check emptiness based on passed layerObjects
-            if (!layerObjects.has(neighborId)) {
-                let drawX, drawY, drawW, drawH; // Logical coordinates
-                const neighborX = nx * logicalCellSize;
-                const neighborY = ny * logicalCellSize;
-
-                // Position the border *inside* the empty neighbor cell, along the edge
-                switch (neighbor.edge) {
-                    case "top":    drawX = neighborX; drawY = neighborY + logicalCellSize - borderThicknessLogical; drawW = logicalCellSize; drawH = borderThicknessLogical; break;
-                    case "right":  drawX = neighborX; drawY = neighborY; drawW = borderThicknessLogical; drawH = logicalCellSize; break;
-                    case "bottom": drawX = neighborX; drawY = neighborY; drawW = logicalCellSize; drawH = borderThicknessLogical; break;
-                    case "left":   drawX = neighborX + logicalCellSize - borderThicknessLogical; drawY = neighborY; drawW = borderThicknessLogical; drawH = logicalCellSize; break;
-                }
-
-                ctx.save();
-                try {
-                    ctx.beginPath(); ctx.rect(drawX, drawY, drawW, drawH); ctx.clip();
-                    // Draw image stretched into the logical border area
-                    ctx.drawImage(borderImage, drawX, drawY, drawW, drawH);
-                } catch (e) {
-                    console.error("PDF Export: Error drawing border image:", e);
-                    ctx.fillStyle = constants.attentionColor; // Fallback
-                    ctx.fillRect(drawX, drawY, drawW, drawH);
-                }
-                ctx.restore();
-            }
-        });
-    });
+  /** Draw the same scene as the editor in logical cell coordinates, without editor helpers. */
+  drawAll(ctx, exportScale, options = {}) {
+    const bbox = options.bounds || this.getLogicalBoundingBox(options),
+      size = this.currentCellSize;
+    ctx.save();
+    ctx.scale(1 / size, 1 / size);
+    drawScene(
+      this,
+      ctx,
+      {
+        minX: bbox.minX * size,
+        minY: bbox.minY * size,
+        maxX: bbox.maxX * size,
+        maxY: bbox.maxY * size,
+      },
+      { whiteBackground: options.colorMode && options.colorMode !== "color" },
+    );
+    ctx.restore();
   }
 
   /**
@@ -2326,7 +2507,16 @@ export class CanvasManager {
       layers: this.layers.map((layer) => ({
         name: layer.name,
         visible: layer.visible !== undefined ? layer.visible : true,
-        gridShadowOptions: layer.gridShadowOptions ? { ...layer.gridShadowOptions } : { ...constants.defaultGridShadowOptions },
+        globalLight: { ...globalLightDefaults, ...layer.globalLight },
+        gridBorderOptions: {
+          ...borderDefaults,
+          ...layer.gridBorderOptions,
+          image: layer.gridBorderOptions?.imageSrc || null,
+          cornerImage: layer.gridBorderOptions?.cornerImageSrc || null,
+        },
+        gridShadowOptions: layer.gridShadowOptions
+          ? { ...layer.gridShadowOptions }
+          : { ...constants.defaultGridShadowOptions },
         objects: Array.from(layer.objects.entries()).map(([key, cell]) => {
           let cellCopy = { ...cell };
           if (cellCopy.imageSrc) cellCopy.image = cellCopy.imageSrc;
@@ -2334,38 +2524,56 @@ export class CanvasManager {
           return [key, cellCopy];
         }),
       })),
-      freeDrawObjects: Array.from(this.freeDrawObjects.entries()).map(([id, obj]) => {
-         let copyObj = { ...obj };
-         if (copyObj.image?.src) copyObj.image = copyObj.image.src;
-         else delete copyObj.image;
-         return [id, copyObj];
-     }),
-      customObjects: Array.from(this.customObjects.entries()).map(([id, obj]) => {
-         let copyObj = { ...obj };
-         if (copyObj.imageSrc) copyObj.image = copyObj.imageSrc;
-         else delete copyObj.image;
-         return [id, copyObj];
-     }),
+      freeDrawObjects: Array.from(this.freeDrawObjects.entries()).map(
+        ([id, obj]) => {
+          let copyObj = { ...obj };
+          if (copyObj.image?.src) copyObj.image = copyObj.image.src;
+          else delete copyObj.image;
+          return [id, copyObj];
+        },
+      ),
+      customObjects: Array.from(this.customObjects.entries()).map(
+        ([id, obj]) => {
+          let copyObj = { ...obj };
+          if (copyObj.imageSrc) copyObj.image = copyObj.imageSrc;
+          else delete copyObj.image;
+          return [id, copyObj];
+        },
+      ),
       settings: {
+        exportSettings: { ...this.exportSettings },
+        ambientLight: { ...this.ambientLight },
+        lightSettings: { ...this.lightSettings },
         currentCellSize: this.currentCellSize,
         offsetX: this.offsetX,
         offsetY: this.offsetY,
         scale: this.scale,
         activeLayerIndex: this.activeLayerIndex,
-        emptyCellSettings: { ...this.emptyCellSettings, pattern: this.emptyCellSettings.patternSrc },
-        gridBorderOptions: { ...this.gridBorderOptions, image: this.gridBorderOptions.imageSrc },
+        emptyCellSettings: {
+          ...this.emptyCellSettings,
+          pattern: this.emptyCellSettings.patternSrc,
+        },
         gridImageList: this.gridImageList,
-        gridDrawSettings: { ...this.gridDrawSettings, image: this.gridDrawSettings.imageSrc },
-        freeDrawSettings: { ...this.freeDrawSettings, image: this.freeDrawSettings.image?.src || null },
+        gridDrawSettings: {
+          ...this.gridDrawSettings,
+          image: this.gridDrawSettings.imageSrc,
+        },
+        freeDrawSettings: {
+          ...this.freeDrawSettings,
+          image:
+            this.freeDrawSettings.sourceImageSrc ||
+            this.freeDrawSettings.image?.src ||
+            null,
+        },
         customObjectImageSrc: this.customObjectImageSrc,
-     },
+      },
     };
     return state;
   }
 
   /**
    * Loads map data into the application, initializes the state, and updates the HUD.
-   * 
+   *
    * @param {Object} data - The map data to be loaded.
    */
   loadMapData(data) {
@@ -2375,37 +2583,14 @@ export class CanvasManager {
     this.saveHistory(); // Save loaded state as initial history
     this.render();
     // Update HUD completely
-    if (window.hudInstance) {
-        window.hudInstance.updateLayerList(); // Updates active layer style
-        window.hudInstance.updateAppearanceControls(); // Updates shadow controls for active layer
-        // Update other relevant HUD parts
-        document.getElementById('cellSize').value = this.currentCellSize;
-        document.getElementById('emptyFillColor').value = this.emptyCellSettings.fillColor;
-        document.getElementById('emptyBorderColor').value = this.emptyCellSettings.borderColor;
-        document.getElementById('emptyPattern').value = ''; // Clear file input visually
-        // Update border controls too
-        const borderPatternPreview = document.getElementById("borderPatternPreview");
-        if (this.gridBorderOptions.imageSrc) {
-            borderPatternPreview.src = this.gridBorderOptions.imageSrc;
-            borderPatternPreview.style.display = 'block';
-        } else {
-            borderPatternPreview.src = "#";
-            borderPatternPreview.style.display = 'none';
-        }
-        document.getElementById("borderPattern").value = '';
-        document.getElementById("bordersEnabled").checked = this.gridBorderOptions.enabled;
-
-        window.hudInstance.loadInstrumentSettings(this.activeInstrument);
-    } else {
-        console.warn("HUD instance not found for updating after load.");
-    }
+    window.hudInstance?.refresh();
   }
 
   /**
    * Sets the active layer by its index and updates the application state accordingly.
-   * 
+   *
    * @param {number} index - The index of the layer to set as active. Must be within the range of existing layers.
-   * 
+   *
    * Updates the `activeLayerIndex` to the specified index.
    * Clears the current selection (`selectedObjects`, `selectionStart`, `selectionEnd`) when changing layers.
    * Triggers a re-render of the canvas.
@@ -2414,16 +2599,16 @@ export class CanvasManager {
   setActiveLayer(index) {
     if (index >= 0 && index < this.layers.length) {
       if (this.activeLayerIndex !== index) {
-          this.activeLayerIndex = index;
-          // Clear selection when changing layers. Optional, but often good UX.
-          this.selectedObjects = { grid: [], free: [], custom: [] };
-          this.selectionStart = null;
-          this.selectionEnd = null;
-          this.render();
-          // Update HUD appearance controls for the new active layer
-          if (window.hudInstance) {
-              window.hudInstance.updateAppearanceControls();
-          }
+        this.activeLayerIndex = index;
+        // Clear selection when changing layers. Optional, but often good UX.
+        this.selectedObjects = { grid: [], free: [], custom: [] };
+        this.selectionStart = null;
+        this.selectionEnd = null;
+        this.render();
+        // Update HUD appearance controls for the new active layer
+        if (window.hudInstance) {
+          window.hudInstance.updateAppearanceControls();
+        }
       }
     }
   }
@@ -2432,7 +2617,7 @@ export class CanvasManager {
    * Adds a new layer to the canvas, sets it as the active layer, and updates the UI.
    * The new layer is initialized with default properties, including a unique name,
    * an empty set of objects, visibility set to true, and default grid shadow options.
-   * 
+   *
    * Updates the HUD appearance controls if `hudInstance` is available.
    * Saves the current state to the history stack.
    * Triggers a re-render of the canvas.
@@ -2442,14 +2627,16 @@ export class CanvasManager {
       name: "Layer " + (this.layers.length + 1),
       objects: new Map(),
       visible: true,
-      gridShadowOptions: { ...constants.defaultGridShadowOptions }
+      gridShadowOptions: { ...constants.defaultGridShadowOptions },
+      globalLight: { ...globalLightDefaults },
+      gridBorderOptions: { ...borderDefaults },
     };
     this.layers.push(newLayer);
-    this.activeLayerIndex = this.layers.length - 1; // Activate the new layer
+    this.setActiveLayer(this.layers.length - 1);
     this.render();
     // Update HUD appearance controls for the new active layer
     if (window.hudInstance) {
-        window.hudInstance.updateAppearanceControls();
+      window.hudInstance.updateAppearanceControls();
     }
     this.saveHistory(); // Adding a layer is a state change
   }
@@ -2462,9 +2649,18 @@ export class CanvasManager {
    */
   removeActiveLayer() {
     if (this.layers.length > 1) {
+      for (const objects of [this.freeDrawObjects, this.customObjects])
+        for (const [id, obj] of objects) {
+          if (obj.layerIndex === this.activeLayerIndex) objects.delete(id);
+          else if (obj.layerIndex > this.activeLayerIndex) obj.layerIndex--;
+        }
+      this.selectedObjects = { grid: [], free: [], custom: [] };
       this.layers.splice(this.activeLayerIndex, 1);
       // Adjust active index if the last layer was removed or index is now out of bounds
-      this.activeLayerIndex = Math.min(Math.max(0, this.activeLayerIndex - 1), this.layers.length - 1);
+      this.activeLayerIndex = Math.min(
+        Math.max(0, this.activeLayerIndex - 1),
+        this.layers.length - 1,
+      );
       this.render();
       this.saveHistory(); // Removing a layer is a state change
     } else {
@@ -2475,7 +2671,7 @@ export class CanvasManager {
   /**
    * Sets the active instrument for the canvas and updates the cursor style accordingly.
    *
-   * @param {string} instrument - The name of the instrument to activate. 
+   * @param {string} instrument - The name of the instrument to activate.
    * Possible values include:
    * - 'gridDraw': Sets the cursor to a crosshair.
    * - 'freeDraw': Sets the cursor to a crosshair.
@@ -2484,21 +2680,194 @@ export class CanvasManager {
    * - 'select': Sets the cursor to default.
    * - Any other value defaults the cursor to default.
    */
+  editable(obj) {
+    return (
+      obj.layerIndex === this.activeLayerIndex &&
+      this.layers[this.activeLayerIndex]?.visible
+    );
+  }
+
+  handlePoints(obj) {
+    const points = [];
+    if (obj.type === "light") return points;
+    const c = Math.cos(obj.rotation || 0),
+      s = Math.sin(obj.rotation || 0);
+    for (const [hx, hy] of [
+      [-1, -1],
+      [0, -1],
+      [1, -1],
+      [1, 0],
+      [1, 1],
+      [0, 1],
+      [-1, 1],
+      [-1, 0],
+      [0, -2],
+    ]) {
+      const x = (hx * obj.width) / 2,
+        y =
+          hy === -2 ? -obj.height / 2 - 28 / this.scale : (hy * obj.height) / 2;
+      points.push({
+        x: obj.x + x * c - y * s,
+        y: obj.y + x * s + y * c,
+        hx,
+        hy,
+        kind: hy === -2 ? "rotate" : "resize",
+      });
+    }
+    return obj.type === "group"
+      ? points.filter((p) => p.kind === "rotate")
+      : points;
+  }
+
+  hitHandle(p) {
+    const group = this.selectionGroup();
+    if (group) {
+      const h = this.handlePoints(group)[0];
+      return Math.hypot(p.x - h.x, p.y - h.y) < 9 / this.scale
+        ? { ...h, obj: group }
+        : null;
+    }
+    for (const id of this.selectedObjects.custom) {
+      const obj = this.customObjects.get(id);
+      if (!obj || !this.editable(obj)) continue;
+      for (const h of this.handlePoints(obj))
+        if (Math.hypot(p.x - h.x, p.y - h.y) < 9 / this.scale)
+          return { ...h, obj };
+    }
+    return null;
+  }
+
+  drawHandles(obj) {
+    if (!this.editable(obj)) return;
+    const ctx = this.ctx,
+      points = this.handlePoints(obj),
+      r = 4 / this.scale;
+    ctx.save();
+    ctx.fillStyle = "#ffffff";
+    ctx.strokeStyle = "#3976c6";
+    ctx.lineWidth = 1.5 / this.scale;
+    if (obj.type === "group") {
+      const top = {
+        x: obj.x + (Math.sin(obj.rotation) * obj.height) / 2,
+        y: obj.y - (Math.cos(obj.rotation) * obj.height) / 2,
+      };
+      ctx.beginPath();
+      ctx.moveTo(top.x, top.y);
+      ctx.lineTo(points[0].x, points[0].y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(obj.x - r * 2, obj.y);
+      ctx.lineTo(obj.x + r * 2, obj.y);
+      ctx.moveTo(obj.x, obj.y - r * 2);
+      ctx.lineTo(obj.x, obj.y + r * 2);
+      ctx.stroke();
+    } else if (points.length) {
+      ctx.beginPath();
+      ctx.moveTo(points[1].x, points[1].y);
+      ctx.lineTo(points[8].x, points[8].y);
+      ctx.stroke();
+    }
+    for (const p of points) {
+      ctx.beginPath();
+      if (p.kind === "rotate") ctx.arc(p.x, p.y, r * 1.3, 0, Math.PI * 2);
+      else ctx.rect(p.x - r, p.y - r, r * 2, r * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  setSelectionCastsShadow(value) {
+    const layer = this.layers[this.activeLayerIndex];
+    if (!layer?.visible) return;
+    for (const id of this.selectedObjects.grid) {
+      const cell = layer.objects.get(id);
+      if (cell) cell.castsShadow = value;
+    }
+    this.saveHistory();
+    this.render();
+  }
+
+  setObjectDimension(obj, dimension, value) {
+    const ratio = obj.width / obj.height;
+    obj[dimension] = value;
+    if (obj.lockAspectRatio) {
+      if (dimension === "width") obj.height = value / ratio;
+      else obj.width = value * ratio;
+    }
+  }
+
+  updateTransform(p, keepAspect) {
+    const { obj, original: o, hx, hy, kind } = this.transformDrag;
+    if (obj.type === "group") {
+      let delta =
+        Math.atan2(p.y - o.y, p.x - o.x) - this.transformDrag.startAngle;
+      delta = Math.atan2(Math.sin(delta), Math.cos(delta));
+      let angle = o.rotation + delta;
+      if (keepAspect)
+        angle = (Math.round(angle / (Math.PI / 12)) * Math.PI) / 12;
+      this.applyGroupRotation(o, this.transformDrag.members, angle);
+      return;
+    }
+    if (kind === "rotate") {
+      obj.rotation = Math.atan2(p.y - o.y, p.x - o.x) + Math.PI / 2;
+      if (keepAspect)
+        obj.rotation =
+          (Math.round(obj.rotation / (Math.PI / 12)) * Math.PI) / 12;
+      return;
+    }
+    const q = localPoint(o, p),
+      min = 2 / this.scale;
+    let width = hx ? Math.max(min, hx * q.x + o.width / 2) : o.width;
+    let height = hy ? Math.max(min, hy * q.y + o.height / 2) : o.height;
+    if (keepAspect || o.lockAspectRatio) {
+      const sx = width / o.width,
+        sy = height / o.height;
+      const ratio = !hx
+        ? sy
+        : !hy
+          ? sx
+          : Math.abs(sx - 1) > Math.abs(sy - 1)
+            ? sx
+            : sy;
+      width = o.width * ratio;
+      height = o.height * ratio;
+    }
+    const dx = (hx * (width - o.width)) / 2,
+      dy = (hy * (height - o.height)) / 2,
+      c = Math.cos(o.rotation),
+      s = Math.sin(o.rotation);
+    Object.assign(obj, {
+      width,
+      height,
+      x: o.x + dx * c - dy * s,
+      y: o.y + dx * s + dy * c,
+    });
+  }
+
   setActiveInstrument(instrument) {
+    this.isDrawing = false;
+    this.isSelecting = false;
+    this.isMovingSelection = false;
+    this.transformDrag = null;
     this.activeInstrument = instrument;
     // Update cursor style based on tool
-    switch(instrument) {
-        case 'gridDraw':
-        case 'freeDraw':
-        case 'addObject':
-            this.canvas.style.cursor = 'crosshair'; break;
-        case 'erase':
-            this.canvas.style.cursor = 'cell'; break;
-        case 'select':
-            this.canvas.style.cursor = 'default'; break;
-        default:
-            this.canvas.style.cursor = 'default';
+    switch (instrument) {
+      case "gridDraw":
+      case "freeDraw":
+      case "addObject":
+        this.canvas.style.cursor = "crosshair";
+        break;
+      case "erase":
+        this.canvas.style.cursor = "cell";
+        break;
+      case "select":
+        this.canvas.style.cursor = "default";
+        break;
+      default:
+        this.canvas.style.cursor = "default";
     }
+    this.render();
     console.log("Active instrument set to:", instrument);
     // No history save needed for changing tool
   }
@@ -2522,9 +2891,9 @@ export class CanvasManager {
    * @returns {boolean} - Returns `true` if the cell is filled in the active layer, otherwise `false`.
    */
   _isCellFilled(x, y) {
-      const activeLayer = this.layers[this.activeLayerIndex];
-      if (!activeLayer) return false;
-      const cellId = this._cellId(x, y);
-      return activeLayer.objects.has(cellId);
+    const activeLayer = this.layers[this.activeLayerIndex];
+    if (!activeLayer) return false;
+    const cellId = this._cellId(x, y);
+    return activeLayer.objects.has(cellId);
   }
 }

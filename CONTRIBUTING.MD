@@ -64,7 +64,7 @@ Ready to write some code? Awesome! We use the standard GitHub Pull Request workf
     *   Please, try to follow the existing code style.
     *   Write clear, understandable code and add comments where necessary, especially for complex logic.
 6.  **Testing:**
-    *   Currently, we rely primarily on manual testing. Please test your changes thoroughly in different browsers (Chrome, Firefox recommended).
+    *   Run the Chromium integration suite described in [README testing](README.MD#testing), and test affected behavior manually in other browsers when relevant.
     *   Describe the testing you performed in your Pull Request description.
     *   Contributions that add automated tests are highly welcome!
 7.  **Commit Changes:** Use clear and concise commit messages. Following conventions like [Conventional Commits](https://www.conventionalcommits.org/) is encouraged but not strictly required.
