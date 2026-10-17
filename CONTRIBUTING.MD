@@ -1,120 +1,75 @@
-# Contributing to Open Map Creator 🗺️
+# Contributing to Open Map Creator
 
-First off, thank you for considering contributing to Open Map Creator! We're excited to build a fantastic, free, and open-source TTRPG map-making tool with the community. Your help is greatly appreciated!
+Contributions are welcome, including bug reports, feature ideas, documentation fixes, example maps, and code changes.
 
-This document provides guidelines for contributing to the project. Please read it to help make the contribution process smooth for everyone.
+Please follow the [Code of Conduct](CODE_OF_CONDUCT.MD).
 
-## Code of Conduct
+## Development setup
 
-We are committed to providing a welcoming and inclusive environment. All contributors are expected to adhere to our [Code of Conduct](./CODE_OF_CONDUCT.MD). Please be respectful and constructive in all interactions.
+Open Map Creator is a static browser application built with JavaScript, HTML, CSS, and Canvas 2D.
 
-## How Can I Contribute?
+```bash
+git clone https://github.com/Rokoel/Open-Map-Creator.git
+cd Open-Map-Creator
+python3 -m http.server 8000
+```
 
-There are many ways to contribute, and not all involve writing code!
+Open **http://localhost:8000**.
 
-*   **Reporting Bugs:** If you find something not working as expected, please let us know.
-*   **Suggesting Enhancements:** Have an idea for a new feature or an improvement to an existing one? We'd love to hear it.
-*   **Improving Documentation:** Help make the `README.md` or other documentation clearer or more comprehensive.
-*   **Writing Code:** Fix bugs or implement new features.
-*   **Testing:** Help test new features or verify bug fixes.
+There is no build step.
 
-## Reporting Bugs 🐞
+## Code structure
 
-Before submitting a bug report, please:
+The main files are:
 
-1.  **Check Existing Issues:** Search the [GitHub Issues](https://github.com/Rokoel/Open-Map-Creator/issues) to see if the bug has already been reported.
-2.  **Provide Details:** If the bug hasn't been reported, create a new issue. Please include:
-    *   A clear and descriptive title.
-    *   Steps to reproduce the bug reliably.
-    *   What you expected to happen.
-    *   What actually happened (include screenshots or GIFs if helpful!).
-    *   Your browser name and version (e.g., Chrome 115, Firefox 114).
-    *   Your operating system (e.g., Windows 11, macOS Ventura, Ubuntu 22.04).
-    *   Any error messages shown in the browser's developer console (usually opened with F12).
+- `js/canvas.js` — editor state and interactions.
+- `js/scene.js` — shared rendering and lighting.
+- `js/geometry.js` — geometry, hit testing, visibility, and contours.
+- `js/borders.js` — procedural border generation.
+- `js/hud.js` — interface controls.
+- `js/storage.js` and `js/project-store.js` — local persistence.
 
-## Suggesting Enhancements ✨
+Try to keep new logic in the most relevant module rather than expanding `canvas.js` unless it directly belongs to editor state or interaction handling.
 
-We welcome suggestions for new features and improvements!
+## Testing
 
-1.  **Check Existing Issues/Discussions:** Search the [GitHub Issues](https://github.com/Rokoel/Open-Map-Creator/issues) and [GitHub Discussions](https://github.com/Rokoel/Open-Map-Creator/discussions) to see if your idea has already been suggested or discussed.
-2.  **Create an Issue:** If your idea is new, create a new issue.
-    *   Use a clear and descriptive title.
-    *   Explain the enhancement you're proposing.
-    *   Describe the problem it solves or the use case it enables (the "why").
-    *   Provide examples or mockups if possible.
+Set up the browser integration tests with:
 
-## Code Contributions & Pull Requests 🧑‍💻
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r tests/requirements.txt
+.venv/bin/playwright install chromium
+.venv/bin/python tests/browser_checks.py
+```
 
-Ready to write some code? Awesome! We use the standard GitHub Pull Request workflow for code changes.
+For code changes, run the integration suite and manually test the behavior you changed when practical.
 
-**Standard Workflow (Recommended for most changes):**
+## Pull requests
 
-1.  **Fork the Repository:** Create your own copy of the project on GitHub.
-2.  **Clone Your Fork:** Clone your forked repository to your local machine.
-    ```bash
-    git clone https://github.com/YOUR_FORKED_USERNAME/Open-Map-Creator.git
-    cd Open-Map-Creator
-    ```
-3.  **Create a Branch:** Create a new branch for your changes. Use a descriptive name (e.g., `feature/add-layer-visibility`, `bugfix/pdf-export-scaling`).
-    ```bash
-    git checkout -b feature/your-feature-name
-    ```
-4.  **Make Changes:** Write your code!
-5.  **Code Style & Formatting:**
-    *   Please, try to follow the existing code style.
-    *   Write clear, understandable code and add comments where necessary, especially for complex logic.
-6.  **Testing:**
-    *   Run the Chromium integration suite described in [README testing](README.MD#testing), and test affected behavior manually in other browsers when relevant.
-    *   Describe the testing you performed in your Pull Request description.
-    *   Contributions that add automated tests are highly welcome!
-7.  **Commit Changes:** Use clear and concise commit messages. Following conventions like [Conventional Commits](https://www.conventionalcommits.org/) is encouraged but not strictly required.
-    ```bash
-    git add .
-    git commit -m "feat: Add layer visibility toggle"
-    ```
-8.  **Push to Your Fork:** Push your branch to your forked repository on GitHub.
-    ```bash
-    git push origin feature/your-feature-name
-    ```
-9.  **Open a Pull Request (PR):**
-    *   Go to the original `Rokoel/Open-Map-Creator` repository on GitHub.
-    *   GitHub should show a prompt to create a Pull Request from your recently pushed branch.
-    *   Target the `main` branch of the original repository (unless otherwise specified).
-    *   Provide a clear title and description for your PR. Explain *what* you changed and *why*.
-    *   If your PR addresses an existing issue, link it using keywords like `Closes #123`.
-    *   Be prepared to discuss your changes and make adjustments based on feedback.
+For non-trivial changes:
 
-**Simpler Workflow (For typos, documentation, or very minor fixes):**
+1. Create a branch.
+2. Make the change and keep it focused.
+3. Add or update tests when the behavior can be covered reliably.
+4. Run the existing test suite.
+5. Open a pull request describing what changed and why.
 
-If you only need to make a small change to a single file (like fixing a typo), you can use GitHub's web interface directly:
+Please follow the existing code style. Comments are most useful around non-obvious geometry, rendering, persistence, and browser-behavior decisions.
 
-1.  Navigate to the file in the main repository on GitHub.
-2.  Click the **Edit** (pencil ✏️) icon near the top right of the file view.
-3.  Make your changes in the web editor.
-4.  Scroll down and enter a concise commit message describing your change.
-5.  Ensure "Create a **new branch**..." is selected.
-6.  Click **Propose changes**.
-7.  On the next screen, click **Create pull request**.
+## Bug reports
 
-**Note:** This simpler method is great for quick fixes, but you won't be able to test your changes before submitting them. For anything more complex than a minor edit, please use the Standard Workflow.
+A useful bug report includes:
 
-## Development Setup
+- steps to reproduce;
+- expected behavior;
+- actual behavior;
+- browser and operating system;
+- screenshots or console errors when relevant.
 
-This project is designed to run directly in the browser without a build step for core functionality.
+## Feature ideas
 
-1.  Clone the repository (as described above).
-2.  Open the `index.html` file in your web browser.
-
-That's it for setting up a development environment. As an alternative, you may setup any local server you'd like.
+Feature requests are welcome. Describe the use case first, then the proposed behavior. Mockups or example maps are useful for UI and rendering changes.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the **MIT License**, the same license that covers the project. See the `LICENSE` file for details.
-
-## Questions?
-
-If you have questions about contributing or using the project, feel free to open an issue on GitHub.
-
----
-
-Thank you again for your interest in contributing to Open Map Creator!
+By contributing, you agree that your contribution is licensed under the same [MIT license](LICENCE) as the project.
