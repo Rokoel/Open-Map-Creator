@@ -1,7 +1,7 @@
 # Open Map Creator
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENCE)
-[![Release: v1.4.0](https://img.shields.io/badge/release-v1.4.0-blue.svg)](https://github.com/Rokoel/Open-Map-Creator/releases/tag/v1.4.0)
+[![Release: v1.5.0](https://img.shields.io/badge/release-v1.5.0-blue.svg)](https://github.com/Rokoel/Open-Map-Creator/releases/tag/v1.5.0)
 
 A browser-based map editor for tabletop RPGs. Draw dungeons, add textures and objects, place lights, and export maps as images or printable PDFs with a chosen physical cell size.
 
@@ -11,13 +11,14 @@ A browser-based map editor for tabletop RPGs. Draw dungeons, add textures and ob
 
 ## Highlights
 
-- Infinite canvas with pan, zoom, grid drawing, brushes, image objects, and layers.
+- Infinite canvas with pan, zoom, grid drawing, polygons, brushes, image objects, and layers.
+- Mobile touch drawing, pinch zoom, two-finger pan, and collapsible settings.
 - Randomized tilesets with rotation, mirroring, and color variation.
 - Object selection, resize/rotate handles, copy/paste, grouping, and layer transfer.
 - Layer-aware lights, ray-cast shadows, ambient lighting, and optional baked lightmaps.
 - Procedural dungeon borders and custom edge/corner artwork.
 - Undo/redo and local autosave with IndexedDB.
-- Editable JSON, PNG, and tiled PDF export.
+- Editable JSON, PNG, and tiled PDF export with a movable, resizable export frame.
 - PDF export supports a chosen physical cell size for printing battle maps at scale.
 - Plain JavaScript, HTML, CSS, and Canvas 2D. No framework or build step.
 
@@ -63,6 +64,9 @@ The project uses JavaScript modules, so serving it over HTTP is recommended. PDF
 | --- | --- |
 | V / G / B / E | Select / Grid / Brush / Erase |
 | O / L / K | Image object / Light / Layers |
+| P / H | Polygon / Pan |
+| Enter (Polygon tool) | Finish polygon |
+| Two-finger drag / pinch | Touch pan / zoom |
 | Middle mouse drag / scroll | Pan / zoom |
 | Shift-drag | Add to selection |
 | Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z | Undo / redo |
@@ -99,6 +103,16 @@ Projects autosave locally in IndexedDB, with older localStorage saves migrated w
 - **PNG** exports a single image.
 - **PDF** tiles the map over pages and supports paper size, orientation, DPI, padding, color mode, and physical cell size.
 
+## Polygons, touch controls, and export framing
+
+Choose **Polygon** (`P`), then tap or click to place vertices. The preview connects them in order. Tap the first vertex, press Enter, or use **Finish polygon** to close the shape. **Remove last vertex** corrects a point; Cancel or Escape discards the draft. New polygons belong to the active visible layer.
+
+Set the fill, outline, and opacity in the Polygon inspector. Upload a separate polygon texture, choose **Tile** with a scale or **Fit entire polygon**, and adjust texture rotation and opacity. Select an existing polygon to change its material, size, rotation, mirrors, or layer. Polygon outlines participate in local-light occlusion and layer shadows, and polygon surfaces receive layer lighting. Polygons stay editable through JSON, autosave, copy/paste, grouping, and undo/redo.
+
+On phones and tablets, use one finger for the chosen tool and two fingers to pan and pinch to zoom. The **Pan** tool (`H`) also moves the map with one finger or a mouse drag. A pinch cancels any uncommitted stroke. The tool rail scrolls horizontally; tap the inspector title or **Map** to expand or collapse settings. Finish/Cancel controls remain available above the canvas while drawing a polygon.
+
+In **Map → Export area**, use **Edit export area** to overlay the output frame. Drag inside the frame to move it, drag a corner to resize it, or enter its position and dimensions in cells. **Finish editing area** returns to drawing. Dashed page guides follow the paper size, orientation, physical cell size, and DPI under **PDF page guides**, which share the PDF dialog’s settings. The chosen frame applies to both PNG and PDF exports and is saved in the project. **Fit area to artwork** restores automatic bounds, including padding and shadows; padding applies only to automatic bounds.
+
 ## Testing
 
 Browser integration tests use Python and Playwright:
@@ -110,13 +124,15 @@ python3 -m venv .venv
 .venv/bin/python tests/browser_checks.py
 ```
 
-The suite runs the editor in Chromium and checks core interactions, rendering, groups, layers, lighting, borders, exports, and local save/reload behavior.
+The suite runs the editor in Chromium and checks core interactions, polygon materials and lighting, touch drawing and navigation, export framing and page scaling, groups, layers, borders, and local save/reload behavior.
 
 ## Project structure
 
 ```text
 js/
   canvas.js        main editor state and interaction logic
+  polygons.js      polygon geometry, materials and shadows
+  editor-controls.js touch navigation and export framing
   scene.js         shared rendering and lighting
   geometry.js      hit testing, visibility and contour geometry
   borders.js       procedural border generation
@@ -129,7 +145,7 @@ tests/             Playwright browser integration checks
 docs/              screenshots, examples and additional documentation
 ```
 
-[DOCUMENTATION.MD](DOCUMENTATION.MD) contains older class-level documentation and notes about the previous renderer. [RELEASE_NOTES.md](RELEASE_NOTES.md) describes the current v1.4.0 release in more detail.
+[DOCUMENTATION.MD](DOCUMENTATION.MD) contains older class-level documentation and notes about the previous renderer. [RELEASE_NOTES.md](RELEASE_NOTES.md) describes the current v1.5.0 release in more detail.
 
 ## Roadmap
 

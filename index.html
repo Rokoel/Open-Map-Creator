@@ -68,6 +68,12 @@
           <use href="assets/iconoir/sprite.svg#edit-pencil"></use></svg
         >Brush
       </button>
+      <button data-instrument="polygon" title="Polygon (P)">
+        <svg aria-hidden="true" class="icon" focusable="false"><use href="assets/iconoir/sprite.svg#frame"></use></svg>Polygon
+      </button>
+      <button data-instrument="pan" title="Pan (H)">
+        <svg aria-hidden="true" class="icon" focusable="false"><use href="assets/iconoir/sprite.svg#cursor-pointer"></use></svg>Pan
+      </button>
       <button data-instrument="erase" title="Eraser (E)">
         <svg aria-hidden="true" class="icon" focusable="false">
           <use href="assets/iconoir/sprite.svg#erase"></use></svg
@@ -91,10 +97,10 @@
       </button>
     </nav>
     <aside aria-label="Instrument settings" id="toolHud">
-      <div class="inspector-title">
+      <button class="inspector-title" id="toolToggle" aria-expanded="true" aria-controls="toolContents" type="button">
         <span id="inspectorToolTitle">GRID BRUSH</span>
-      </div>
-      <div class="panel-scroll">
+      </button>
+      <div class="panel-scroll" id="toolContents">
         <section class="tab-panel" id="toolPanel">
           <div id="instrumentSettings"></div>
         </section>
@@ -474,6 +480,14 @@
                 type="file"
             /></label>
           </div>
+          <div id="exportAreaControls">
+            <h3>Export area</h3>
+            <button id="editExportArea" aria-pressed="false">Edit export area</button>
+            <p class="hint">Drag the frame to move it, or drag a corner to resize. Dashed guides show PDF pages. Finish editing to draw again.</p>
+            <div id="exportAreaFields"></div>
+            <button id="resetExportArea">Fit area to artwork</button>
+            <details><summary>PDF page guides</summary><div id="exportPageFields"></div></details>
+          </div>
           <div id="dataControls">
             <h3>Project files</h3>
             <p class="hint">
@@ -591,9 +605,13 @@
         </div>
       </form>
     </dialog>
+    <div id="canvasActions">
+      <div id="draftActions" hidden><button id="finishPolygon">Finish polygon</button><button id="cancelPolygon">Cancel</button></div>
+      <button id="finishExportArea" hidden>Finish editing area</button>
+    </div>
     <footer>
       <span id="toolStatus">Grid brush</span
-      ><span>Scroll to zoom · Middle drag to pan · Ctrl Z to undo</span
+      ><span>Scroll to zoom · Pan tool or two fingers to move · Pinch to zoom</span
       ><button id="resetView" title="Reset zoom and pan">
         <svg aria-hidden="true" class="icon" focusable="false">
           <use href="assets/iconoir/sprite.svg#frame"></use>

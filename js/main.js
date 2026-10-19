@@ -1,3 +1,4 @@
+import { polygonDefaults } from "./polygons.js";
 import { CanvasManager } from "./canvas.js";
 import { HUD } from "./hud.js";
 import { StorageManager } from "./storage.js";
@@ -30,6 +31,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   for (const id of ["exportPDF", "exportPDFPrimary"])
     document.getElementById(id).addEventListener("click", () => {
+      for (const [id,key,fallback] of [["pdfOrientation","orientation","landscape"],["pdfPaper","paper","A4"],["pdfDpi","dpi",150],["pdfCellSize","cellSize",2.5]])
+        document.getElementById(id).value = canvasManager.exportSettings[key] ?? fallback;
       document.getElementById("pdfColorMode").value =
         canvasManager.exportSettings.colorMode;
       document.getElementById("pdfPadding").value =
@@ -42,6 +45,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     .addEventListener("click", () =>
       document.getElementById("pdfDialog").close(),
     );
+  for (const [id,key] of [["pdfOrientation","orientation"],["pdfPaper","paper"],["pdfDpi","dpi"],["pdfCellSize","cellSize"],["pdfPadding","padding"],["pdfColorMode","colorMode"]]) {
+    document.getElementById(id).addEventListener("change", e => {
+      if (!e.target.checkValidity()) return;
+      canvasManager.exportSettings[key] = ["dpi","cellSize","padding"].includes(key) ? Number(e.target.value) : e.target.value;
+      canvasManager.saveHistory(); canvasManager.render();
+      hud.updateAppearanceControls();
+    });
+  }
   document.getElementById("pdfForm").addEventListener("submit", (event) => {
     event.preventDefault();
     document.getElementById("pdfDialog").close();
@@ -103,6 +114,11 @@ document.addEventListener("DOMContentLoaded", async () => {
       canvasManager.lightSettings = { ...lightDefaults };
       canvasManager.ambientLight = { ...ambientDefaults };
       canvasManager.exportSettings = { colorMode: "color", padding: 1 };
+      canvasManager.polygonSettings = { ...polygonDefaults };
+      canvasManager.polygonDraft = [];
+      canvasManager.exportOverlay = false;
+      document.getElementById("editExportArea").textContent = "Edit export area";
+      document.getElementById("editExportArea").setAttribute("aria-pressed", "false");
       canvasManager.bakedLighting = null;
       canvasManager.bakeStatus = "Live lighting";
 

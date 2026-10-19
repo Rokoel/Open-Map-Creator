@@ -713,3 +713,40 @@ button {
 [hidden] {
   display: none !important;
 }
+
+#toolbar { overflow-x: auto; }
+#toolToggle { width: 100%; border: 0; border-radius: 0; text-align: left; }
+#toolToggle::after { content: "−"; margin-left: auto; }
+#toolToggle[aria-expanded="false"]::after { content: "+"; }
+#toolHud.is-collapsed { bottom: auto; }
+#canvasActions {
+  position: fixed; bottom: 55px; left: 50%; transform: translateX(-50%);
+  z-index: 3; display: flex; gap: 8px; white-space: nowrap;
+}
+#draftActions { display: flex; gap: 8px; }
+#exportAreaControls { padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+dialog { max-height: calc(100dvh - 24px); overflow-y: auto; }
+@media (max-width: 700px) {
+  .appbar { height: 60px; padding: 0 8px; gap: 4px; }
+  .brand { font-size: 12px; gap: 5px; white-space: normal; }
+  .brand-icon { display: none; }
+  .header-actions { flex-shrink: 0; }
+  #exportPDFPrimary { font-size: 0; gap: 0; }
+  #exportPDFPrimary .icon { width: 20px; height: 20px; }
+  #toolbar { top: 68px; left: 8px; width: calc(100vw - 16px); max-width: none; padding: 4px; }
+  #toolbar button { min-width: 44px; flex-basis: 44px; min-height: 48px; }
+  #toolHud { top: auto; bottom: 44px; left: 8px; width: calc(100vw - 16px); max-height: 43dvh; }
+  #toolHud.is-collapsed { bottom: 44px; width: calc(100vw - 136px); }
+  #hud { top: auto; right: 8px; bottom: 44px; width: calc(100vw - 16px); max-height: 60dvh; z-index: 4; }
+  #hud.is-collapsed { width: 112px; bottom: 44px; }
+  #toolToggle, #mapToggle { min-height: 44px; }
+  #canvasActions { top: 130px; bottom: auto; }
+  .panel-scroll { min-height: 0; overscroll-behavior: contain; }
+  button, summary, .upload { touch-action: manipulation; }
+  .panel-scroll button, .panel-scroll select, .panel-scroll input, summary { min-height: 44px; }
+  input, select { font-size: 16px; }
+  .field input[type="color"] { height: 44px; }
+}
+@media (max-height: 500px) and (min-width: 701px) {
+  #toolHud { max-height: calc(100dvh - 190px); }
+}

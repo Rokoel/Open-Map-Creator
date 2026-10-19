@@ -1,3 +1,4 @@
+import { polygonPoints, drawPolygonShadows } from "./polygons.js";
 import { corners, edges, gridEdges, visibility, rayHit } from "./geometry.js";
 
 import { drawBorderTopology } from "./borders.js";
@@ -46,7 +47,7 @@ function occluders(manager, layerIndex) {
         obj.type !== "light" &&
         obj.blocksLight !== false
       )
-        segments.push(...edges(corners(obj)));
+        segments.push(...edges(obj.type === "polygon" ? polygonPoints(obj) : corners(obj)));
   });
   return segments;
 }
@@ -241,6 +242,8 @@ export function lightingSignature(manager) {
         .filter((c) => c.blocksLight !== false && c.castsShadow !== false)
         .map((c) => [c.x, c.y]),
     ]),
+    [...manager.customObjects.values()].filter(o => o.type === "polygon")
+      .map(o => [o.layerIndex, o.blocksLight, polygonPoints(o)]),
     [...manager.customObjects.values()]
       .filter((o) => o.type === "light")
       .map((o) => [
@@ -424,6 +427,12 @@ export function drawScene(
           layer.gridShadowOptions,
         );
 
+      if (global.globalEnabled) drawPolygonShadows(manager, layerContext, index, {
+        enabled:true, angle:global.angle, offset:global.shadowLength,
+        color:global.shadowColor + Math.round(global.shadowOpacity*255).toString(16).padStart(2,"0"),
+        softness:global.shadowSoftness,
+      });
+      drawPolygonShadows(manager, layerContext, index, layer.gridShadowOptions);
       for (const obj of manager.freeDrawObjects.values())
         if (obj.layerIndex === index) manager.drawFreeDrawObject(obj);
       for (const obj of manager.customObjects.values())

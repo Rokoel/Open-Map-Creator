@@ -251,7 +251,7 @@ export class StorageManager {
   exportPNG(options = {}) {
     options = { ...this.canvasManager.exportSettings, ...options };
     const manager = this.canvasManager,
-      bounds = manager.getLogicalBoundingBox(options);
+      bounds = manager.getExportBounds(options);
     const cellPixels = 64,
       width = Math.ceil(bounds.width * cellPixels),
       height = Math.ceil(bounds.height * cellPixels);
@@ -344,7 +344,7 @@ export class StorageManager {
     }
 
     // Get map content bounds in logical units
-    const bbox = this.canvasManager.getLogicalBoundingBox(options);
+    const bbox = this.canvasManager.getExportBounds(options);
     if (bbox.width <= 0 || bbox.height <= 0) {
       alert("Map is empty. Nothing to export.");
       return;

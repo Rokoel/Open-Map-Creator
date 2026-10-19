@@ -3,6 +3,8 @@ import { constants } from "./constants.js";
 import { borderDefaults, lightDefaults, ambientDefaults } from "./scene.js";
 const $ = (id) => document.getElementById(id);
 const names = {
+  polygon: "Polygon",
+  pan: "Pan",
   gridDraw: "Grid brush",
   freeDraw: "Freehand brush",
   erase: "Eraser",
@@ -18,6 +20,17 @@ export class HUD {
     this.storageManager = storageManager;
     window.hudInstance = this;
     this.setupToolbar();
+    this.setupExportArea();
+    $("finishPolygon").onclick = () => canvasManager.finishPolygon();
+    $("cancelPolygon").onclick = () => { canvasManager.polygonDraft = []; canvasManager.render(); this.refresh(); };
+    $("finishExportArea").onclick = () => $("editExportArea").click();
+    $("toolToggle").onclick = () => {
+      const hidden = !$("toolContents").hidden;
+      $("toolContents").hidden = hidden;
+      $("toolToggle").setAttribute("aria-expanded", String(!hidden));
+      $("toolHud").classList.toggle("is-collapsed", hidden);
+    };
+    if (matchMedia("(max-width: 700px)").matches) $("toolToggle").click();
     this.setupLayerControls();
     this.setupAppearanceSettings();
     this.setupLightingSettings();
@@ -78,6 +91,8 @@ export class HUD {
       )
         return;
       const tool = {
+        p: "polygon",
+        h: "pan",
         v: "select",
         g: "gridDraw",
         b: "freeDraw",
@@ -90,7 +105,12 @@ export class HUD {
         e.preventDefault();
         this.chooseTool(tool);
       }
+      if (e.key === "Enter" && canvasManager.activeInstrument === "polygon") canvasManager.finishPolygon();
       if (e.key === "Escape") {
+        canvasManager.polygonDraft = [];
+        canvasManager.exportOverlay = false;
+        $("editExportArea").textContent = "Edit export area";
+        $("editExportArea").setAttribute("aria-pressed", "false");
         canvasManager.selectedObjects = { grid: [], free: [], custom: [] };
         canvasManager.render();
         this.loadInstrumentSettings(canvasManager.activeInstrument);
@@ -98,12 +118,79 @@ export class HUD {
     });
     this.updateAppearanceControls();
   }
+  polygonFields(parent, obj) {
+    this.field(parent, "Fill", "color", obj.fillColor, v => obj.fillColor = v);
+    this.field(parent, "Outline", "color", obj.borderColor, v => obj.borderColor = v);
+    this.field(parent, "Opacity", "range", obj.opacity, v => obj.opacity = v, { min:0, max:1, step:.01 });
+    this.upload(parent, "Polygon texture", obj.imageSrc, image => { obj.image = image; obj.imageSrc = image.src; });
+    this.field(parent, "Texture mode", "select", obj.textureMode, v => obj.textureMode = v, {
+      choices:[["tile","Tile"],["fit","Fit entire polygon"]],
+    });
+    this.field(parent, "Texture scale", "number", obj.textureScale, v => obj.textureScale = v, { min:.05, max:100, step:.05 });
+    this.field(parent, "Texture rotation (°)", "number", obj.textureAngle, v => obj.textureAngle = v, { min:-3600, max:3600, step:1 });
+    this.field(parent, "Texture opacity", "range", obj.textureOpacity, v => obj.textureOpacity = v, { min:0, max:1, step:.01 });
+    if (obj.imageSrc) this.button(parent, "Remove polygon texture", () => { obj.image = obj.imageSrc = null; this.commit(); this.refresh(); });
+  }
+  setupExportArea() {
+    const cm = this.canvasManager;
+    $("editExportArea").onclick = () => {
+      cm.exportOverlay = !cm.exportOverlay;
+      cm.isDrawing = cm.isSelecting = cm.isMovingSelection = false;
+      cm.polygonDraft = [];
+      $("editExportArea").textContent = cm.exportOverlay ? "Finish editing area" : "Edit export area";
+      $("editExportArea").setAttribute("aria-pressed", String(cm.exportOverlay));
+      if (cm.exportOverlay && matchMedia("(max-width: 700px)").matches) this.setMapCollapsed(true);
+      cm.render();
+    };
+    $("resetExportArea").onclick = () => {
+      delete cm.exportSettings.region;
+      this.updateExportFields(); this.commit();
+    };
+    this.updateExportFields();
+    const p = $("exportPageFields");
+    for (const [key, label, type, fallback, options] of [
+      ["orientation","Orientation","select","landscape",{choices:[["landscape","Landscape"],["portrait","Portrait"]]}],
+      ["paper","Paper","select","A4",{choices:[["A4","A4"],["A3","A3"]]}],
+      ["cellSize","Cell size (cm)","number",2.5,{min:.1,max:10,step:.1}],
+      ["dpi","Resolution (DPI)","number",150,{min:36,max:600,step:1}],
+    ]) this.field(p,label,type,cm.exportSettings[key] ?? fallback,v => cm.exportSettings[key] = v,options);
+  }
+  updateExportFields() {
+    const cm = this.canvasManager, p = $("exportAreaFields");
+    const b = cm.getExportBounds();
+    // Keep focused inputs stable while dragging or typing.
+    if (p.children.length) {
+      const values = [b.minX,b.minY,b.width,b.height];
+      p.querySelectorAll("input").forEach((input,i) => {
+        if (document.activeElement !== input) input.value = Number(values[i].toFixed(4));
+      });
+      return;
+    }
+    for (const [key,label,value] of [["x","Left (cells)",b.minX],["y","Top (cells)",b.minY],["width","Area width (cells)",b.width],["height","Area height (cells)",b.height]]) {
+      this.field(p,label,"number",value,v => {
+        const b = cm.getExportBounds();
+        if (key === "x") { b.maxX += v-b.minX; b.minX = v; }
+        if (key === "y") { b.maxY += v-b.minY; b.minY = v; }
+        if (key === "width") b.maxX = b.minX+v;
+        if (key === "height") b.maxY = b.minY+v;
+        cm.exportSettings.region = {minX:b.minX,minY:b.minY,maxX:b.maxX,maxY:b.maxY};
+      },{min:["width","height"].includes(key) ? .25 : -100000,max:100000,step:.25});
+    }
+  }
   refresh() {
     this.updateLayerList();
     this.updateAppearanceControls();
+    this.updateExportFields();
     this.loadInstrumentSettings(this.canvasManager.activeInstrument);
   }
   setMapCollapsed(collapsed) {
+    if (!collapsed) {
+      this.updateExportFields();
+      for (const [i,key] of ["orientation","paper","cellSize","dpi"].entries()) {
+        const input = $("exportPageFields").querySelectorAll("input,select")[i];
+        if (input) input.value = this.canvasManager.exportSettings[key] ?? ["landscape","A4",2.5,150][i];
+      }
+    }
     $("hud").classList.toggle("is-collapsed", collapsed);
     $("mapContents").hidden = collapsed;
     $("mapToggle").setAttribute("aria-expanded", String(!collapsed));
@@ -823,7 +910,16 @@ export class HUD {
     h.textContent = names[instrument];
     p.append(h);
     this.syncToolbar();
-    if (instrument === "gridDraw") {
+    if (instrument === "polygon") {
+      this.hint(p, "Tap or click to place vertices. Tap the first vertex or Finish polygon to close. Enter finishes; Escape cancels.");
+      this.hint(p, `${cm.polygonDraft.length} vertices placed`);
+      this.button(p, "Finish polygon", () => cm.finishPolygon()).disabled = cm.polygonDraft.length < 3;
+      this.button(p, "Remove last vertex", () => { cm.polygonDraft.pop(); cm.render(); this.loadInstrumentSettings("polygon"); }).disabled = !cm.polygonDraft.length;
+      this.button(p, "Cancel polygon", () => { cm.polygonDraft = []; cm.render(); this.loadInstrumentSettings("polygon"); });
+      this.polygonFields(p, cm.polygonSettings);
+    } else if (instrument === "pan") {
+      this.hint(p, "Drag to move the map. Pinch with two fingers to zoom. Choose a drawing tool to edit.");
+    } else if (instrument === "gridDraw") {
       const s = cm.gridDrawSettings;
       this.hint(
         p,
@@ -1212,6 +1308,7 @@ export class HUD {
       }
       if (objs.length === 1 && members.length === 1) {
         const obj = objs[0];
+        if (obj.type === "polygon") this.polygonFields(p, obj);
         if (obj.type === "light") this.lightFields(p, obj);
         else {
           const lock = this.button(p, "", () => {

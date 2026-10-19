@@ -1,3 +1,33 @@
+# Open Map Creator v1.5.0
+
+Released October 20, 2026.
+
+Draw textured polygons, edit maps with touch controls, and choose exactly which area to export. The editor remains a static browser application with no build step.
+
+**[Open the app](https://rokoel.github.io/Open-Map-Creator/)** · **[Usage guide](README.MD#polygons-touch-controls-and-export-framing)**
+
+## Added
+
+- **Polygon tool (`P`):** Place vertices one at a time and close the shape by tapping its first vertex, pressing Enter, or choosing Finish polygon. Remove the last vertex or cancel a draft. Concave polygons use their actual shape for selection and light occlusion.
+- **Polygon materials:** Separate fill and outline colors, overall opacity, and uploaded textures with tiling, scale, rotation, fit-to-polygon mode, and texture opacity. Select a polygon to edit its appearance and transforms or move it to another layer.
+- **Polygon lighting and persistence:** Polygons receive layer lighting and cast local-light and directional shadows. Polygon geometry changes invalidate baked lighting. Polygons remain editable through JSON, autosave, undo/redo, grouping, and copy/paste.
+- **Mobile controls:** One-finger drawing and selection, two-finger panning and pinch zoom, and a Pan tool (`H`) for one-finger or mouse navigation. Starting a pinch cancels the uncommitted stroke to prevent accidental painting.
+- **Responsive interface:** A horizontally scrollable tool rail, collapsible inspectors, larger touch targets, and floating Finish/Cancel actions for polygon drawing and export-area editing.
+- **Editable export area:** In Map, choose Edit export area and move or resize the frame using its corners or numeric position/dimension fields. The saved frame controls PNG and PDF bounds. Fit area to artwork restores automatic bounds and padding.
+- **PDF page guides:** Dashed overlay guides match paper size, orientation, physical cell size, and DPI. Guide settings and the PDF export dialog share the same saved settings.
+
+## Validation
+
+The full Chromium integration suite passes, including polygon texture clipping, concave hit testing, material roundtrips, lighting/shadows, opacity compositing, export-frame movement/resizing, PNG dimensions, PDF downloads, and simulated mobile touch drawing, pinch zoom, panning, and stroke cancellation. Existing rendering, layers, groups, lighting/bakes, tilesets, and durable autosave checks also pass.
+
+## Upgrade notes
+
+- Existing projects continue to load. New JSON exports identify version 1.5.0 and retain editable polygon and export-area settings.
+- Export padding applies to automatic bounds; a custom export frame defines the exact output bounds.
+- PDF creation still loads jsPDF from its CDN. No build step is required; use the hosted app or serve the project over HTTP.
+
+---
+
 # Open Map Creator v1.4.0
 
 Released October 17, 2026.

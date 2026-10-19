@@ -1,3 +1,5 @@
+import { polygonPoints, polygonDefaults, drawPolygon, finishPolygon, drawPolygonDraft } from "./polygons.js";
+import { setupEditorControls, drawExportOverlay } from "./editor-controls.js";
 import { contains, localPoint, corners, gridEdges } from "./geometry.js";
 import { brushDefaults, svgFromDataUrl, loadBrushImage } from "./brush.js";
 import { tileDefaults, tileVariation } from "./tiles.js";
@@ -57,6 +59,8 @@ export class CanvasManager {
     // FreeDraw objects and custom objects
     this.freeDrawObjects = new Map();
     this.customObjects = new Map();
+    this.polygonSettings = { ...polygonDefaults };
+    this.polygonDraft = [];
 
     // To support freeDraw period option
     this.lastFreeDrawPosition = null;
@@ -106,6 +110,7 @@ export class CanvasManager {
 
     this.resizeCanvas();
     window.addEventListener("resize", () => this.resizeCanvas());
+    setupEditorControls(this);
     this.setupEventListeners();
     this.saveHistory();
     this.render();
@@ -248,6 +253,7 @@ export class CanvasManager {
     this.isDrawing = this.isSelecting = this.isMovingSelection = false;
     this.transformDrag = this.selectionStart = this.selectionEnd = null;
     this.selectionBase = null;
+    this.polygonDraft = [];
     this.layers = state.layers.map((layerData) => {
       let newLayer = {
         name: layerData.name || "Unnamed Layer",
@@ -457,6 +463,13 @@ export class CanvasManager {
       padding: 1,
       ...state.settings?.exportSettings,
     };
+    this.polygonSettings = { ...polygonDefaults, ...state.settings?.polygonSettings };
+    if (this.polygonSettings.imageSrc) {
+      const image = new Image();
+      image.onload = () => this.render();
+      image.src = this.polygonSettings.imageSrc;
+      this.polygonSettings.image = image;
+    }
     this.bakedLighting = null;
     this.bakeStatus = "Live lighting";
     this.rebuildBorderTopology();
@@ -568,6 +581,7 @@ export class CanvasManager {
     this.layers.forEach((layer) => layer.objects.clear());
     this.freeDrawObjects.clear();
     this.customObjects.clear();
+    this.polygonDraft = [];
     this.selectedObjects = { grid: [], free: [], custom: [] };
     this.selectionStart = null;
     this.selectionEnd = null;
@@ -739,7 +753,7 @@ export class CanvasManager {
       const worldPos = this.screenToWorld(startX, startY);
 
       // Middle mouse button for panning
-      if (event.button === 1) {
+      if (event.button === 1 || (event.button === 0 && this.activeInstrument === "pan")) {
         // Middle mouse button
         this.isPanning = true;
         this.lastPanX = event.clientX;
@@ -821,6 +835,7 @@ export class CanvasManager {
       this.mouseX = worldPos.x;
       this.mouseY = worldPos.y;
       this.mouseOverCanvas = true;
+      if (this.activeInstrument === "polygon") this.render();
       if (
         this.activeInstrument === "freeDraw" &&
         (this.brushSizeModifier ||
@@ -883,7 +898,7 @@ export class CanvasManager {
         return;
       }
       // Panning end
-      if (event.button === 1 && this.isPanning) {
+      if ((event.button === 1 || event.button === 0) && this.isPanning) {
         // Middle mouse button
         this.isPanning = false;
         this.canvas.style.cursor = "default";
@@ -1125,6 +1140,18 @@ export class CanvasManager {
         this.render();
         break;
 
+      case "polygon": {
+        if (event.type !== "mousedown") break;
+        const first = this.polygonDraft[0];
+        if (first && this.polygonDraft.length >= 3 && Math.hypot(first.x-worldPos.x, first.y-worldPos.y) < 12/this.scale) {
+          this.finishPolygon();
+        } else {
+          this.polygonDraft.push({ ...worldPos });
+          window.hudInstance?.loadInstrumentSettings("polygon");
+        }
+        this.render();
+        break;
+      }
       case "light": {
         if (event.type !== "mousedown") break;
         const id = crypto.randomUUID();
@@ -1917,6 +1944,9 @@ export class CanvasManager {
    */
   _doRender() {
     const ctx = this.ctx;
+    document.getElementById("draftActions").hidden = !(this.activeInstrument === "polygon" && this.polygonDraft.length);
+    document.getElementById("finishPolygon").disabled = this.polygonDraft.length < 3;
+    document.getElementById("finishExportArea").hidden = !this.exportOverlay;
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     ctx.save();
     ctx.translate(this.offsetX, this.offsetY);
@@ -1931,6 +1961,8 @@ export class CanvasManager {
     };
 
     drawScene(this, ctx, viewBounds, { editor: true });
+    drawPolygonDraft(this);
+    drawExportOverlay(this, viewBounds);
     // Light markers are drawn within their own layer by the editor scene pass.
     // Draw Selection
     if (this.isSelecting && this.selectionStart && this.selectionEnd) {
@@ -2223,6 +2255,7 @@ export class CanvasManager {
    * @param {string} [obj.imageSrc] - The source URL of the object's image (used for error logging).
    */
   drawCustomObject(obj) {
+    if (obj.type === "polygon") return drawPolygon(this, obj);
     const ctx = this.ctx;
     ctx.save();
     // Translate to the object's center and rotate
@@ -2385,6 +2418,13 @@ export class CanvasManager {
    *   - {number} width - The width of the bounding box (maxX - minX).
    *   - {number} height - The height of the bounding box (maxY - minY).
    */
+  finishPolygon() { return finishPolygon(this); }
+
+  getExportBounds(options = {}) {
+    const region = this.exportSettings.region;
+    return region ? { ...region, width: region.maxX-region.minX, height: region.maxY-region.minY } : this.getLogicalBoundingBox(options);
+  }
+
   getLogicalBoundingBox({
     includeLights = false,
     includeObjects = true,
@@ -2442,8 +2482,22 @@ export class CanvasManager {
             { x: obj.x - obj.radius * size, y: obj.y - obj.radius * size },
             { x: obj.x + obj.radius * size, y: obj.y + obj.radius * size },
           );
-        else if (obj.type !== "light" && includeObjects)
-          points.push(...corners(obj));
+        else if (obj.type !== "light" && (includeObjects || obj.type === "polygon")) {
+          const shape = obj.type === "polygon" ? polygonPoints(obj) : corners(obj);
+          points.push(...shape);
+          if (obj.type === "polygon" && obj.blocksLight !== false) {
+            const layer = this.layers[obj.layerIndex], global = { ...ambientDefaults, ...layer.globalLight };
+            const shadows = [layer.gridShadowOptions];
+            if (global.globalEnabled) shadows.push({enabled:true,angle:global.angle,offset:global.shadowLength,softness:global.shadowSoftness});
+            for (const shadow of shadows) if (shadow?.enabled) {
+              const angle = shadow.angle*Math.PI/180, blur = (shadow.softness || 0)*size*3;
+              for (const p of shape) {
+                const x = p.x+Math.cos(angle)*shadow.offset*size, y = p.y+Math.sin(angle)*shadow.offset*size;
+                points.push({x:x-blur,y:y-blur},{x:x+blur,y:y+blur});
+              }
+            }
+          }
+        }
       }
     if (!points.length)
       return { minX: 0, minY: 0, maxX: 10, maxY: 10, width: 10, height: 10 };
@@ -2541,6 +2595,7 @@ export class CanvasManager {
         },
       ),
       settings: {
+        polygonSettings: { ...this.polygonSettings, image: null },
         exportSettings: { ...this.exportSettings },
         ambientLight: { ...this.ambientLight },
         lightSettings: { ...this.lightSettings },
@@ -2600,6 +2655,7 @@ export class CanvasManager {
     if (index >= 0 && index < this.layers.length) {
       if (this.activeLayerIndex !== index) {
         this.activeLayerIndex = index;
+        this.polygonDraft = [];
         // Clear selection when changing layers. Optional, but often good UX.
         this.selectedObjects = { grid: [], free: [], custom: [] };
         this.selectionStart = null;
@@ -2720,10 +2776,11 @@ export class CanvasManager {
   }
 
   hitHandle(p) {
+    const tolerance = (matchMedia("(pointer: coarse)").matches ? 22 : 9) / this.scale;
     const group = this.selectionGroup();
     if (group) {
       const h = this.handlePoints(group)[0];
-      return Math.hypot(p.x - h.x, p.y - h.y) < 9 / this.scale
+      return Math.hypot(p.x - h.x, p.y - h.y) < tolerance
         ? { ...h, obj: group }
         : null;
     }
@@ -2731,7 +2788,7 @@ export class CanvasManager {
       const obj = this.customObjects.get(id);
       if (!obj || !this.editable(obj)) continue;
       for (const h of this.handlePoints(obj))
-        if (Math.hypot(p.x - h.x, p.y - h.y) < 9 / this.scale)
+        if (Math.hypot(p.x - h.x, p.y - h.y) < tolerance)
           return { ...h, obj };
     }
     return null;
@@ -2850,11 +2907,13 @@ export class CanvasManager {
     this.isSelecting = false;
     this.isMovingSelection = false;
     this.transformDrag = null;
+    if (instrument !== this.activeInstrument) this.polygonDraft = [];
     this.activeInstrument = instrument;
     // Update cursor style based on tool
     switch (instrument) {
       case "gridDraw":
       case "freeDraw":
+      case "polygon":
       case "addObject":
         this.canvas.style.cursor = "crosshair";
         break;

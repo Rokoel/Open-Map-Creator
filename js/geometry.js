@@ -1,3 +1,4 @@
+import { polygonPoints } from "./polygons.js";
 // Shared world-space geometry for hit testing, lighting and export.
 export function localPoint(obj, p) {
   const c = Math.cos(obj.rotation || 0),
@@ -21,6 +22,17 @@ export function corners(obj) {
   }));
 }
 export function contains(obj, p) {
+  if (obj.type === "polygon") {
+    const points = polygonPoints(obj);
+    let hit = false;
+    for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+      const a = points[i], b = points[j];
+      const cross = (p.x - a.x) * (b.y - a.y) - (p.y - a.y) * (b.x - a.x);
+      if (Math.abs(cross) < 1e-6 && p.x >= Math.min(a.x,b.x) && p.x <= Math.max(a.x,b.x) && p.y >= Math.min(a.y,b.y) && p.y <= Math.max(a.y,b.y)) return true;
+      if ((a.y > p.y) !== (b.y > p.y) && p.x < (b.x-a.x)*(p.y-a.y)/(b.y-a.y)+a.x) hit = !hit;
+    }
+    return hit;
+  }
   const q = localPoint(obj, p);
   return Math.abs(q.x) <= obj.width / 2 && Math.abs(q.y) <= obj.height / 2;
 }
