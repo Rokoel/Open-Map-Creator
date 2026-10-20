@@ -1,7 +1,7 @@
 # Open Map Creator
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENCE)
-[![Release: v1.5.0](https://img.shields.io/badge/release-v1.5.0-blue.svg)](https://github.com/Rokoel/Open-Map-Creator/releases/tag/v1.5.0)
+[![Release: v1.6.0](https://img.shields.io/badge/release-v1.6.0-blue.svg)](https://github.com/Rokoel/Open-Map-Creator/releases/tag/v1.6.0)
 
 A browser-based map editor for tabletop RPGs. Draw dungeons, add textures and objects, place lights, and export maps as images or printable PDFs with a chosen physical cell size.
 
@@ -112,7 +112,25 @@ Set the fill, outline, and opacity in the Polygon inspector. Upload a separate p
 
 On phones and tablets, use one finger for the chosen tool and two fingers to pan and pinch to zoom. The **Pan** tool (`H`) also moves the map with one finger or a mouse drag. A pinch cancels any uncommitted stroke. The tool rail scrolls horizontally; tap the inspector title or **Map** to expand or collapse settings. Finish/Cancel controls remain available above the canvas while drawing a polygon.
 
-In **Map → Export area**, use **Edit export area** to overlay the output frame. Drag inside the frame to move it, drag a corner to resize it, or enter its position and dimensions in cells. **Finish editing area** returns to drawing. Dashed page guides follow the paper size, orientation, physical cell size, and DPI under **PDF page guides**, which share the PDF dialog’s settings. The chosen frame applies to both PNG and PDF exports and is saved in the project. **Fit area to artwork** restores automatic bounds, including padding and shadows; padding applies only to automatic bounds.
+In **Map → Export area**, use **Edit export area** to overlay the output frame. Drag inside the frame to move it, drag a corner to resize it, or enter its position and dimensions in cells. **Finish editing area** returns to drawing. Dashed page guides follow the paper size, orientation, physical cell size, DPI, and sheet margins under **PDF page guides**, which share the PDF dialog’s settings. The chosen frame applies to both PNG and PDF exports and is saved in the project. **Fit area to artwork** restores automatic bounds, including padding and shadows; padding applies only to automatic bounds.
+
+## Printing on sheets with margins
+
+In the PDF dialog, set **Margins on every sheet (mm)** for the top, right, bottom, and left edges. Defaults are **5 mm on each edge**; adjust them to your printer’s printable area, or use 0 for borderless output. The same settings are available in **Map → Export area → PDF page guides** and are saved with the project.
+
+These margins apply to **each sheet**, separately from map-wide **Padding (cells)**. Increasing sheet margins reduces the area of map printed on each page and can add pages. It never shrinks the map: each image pixel retains its DPI-based physical size, and the chosen cell size stays the same. The preview and PDF dialog show the updated page split. All tiles together include the complete export area, including partial tiles on the last row and column.
+
+### Which margins should I use?
+
+| Setting | What it changes |
+| --- | --- |
+| **Padding (cells)** | Space around the outside of the complete map. |
+| **Margins on every sheet (mm)** | The printable area used when splitting the map into PDF pages. Larger margins move the page breaks and can add pages, while preserving cell size. |
+| **Print-app margins / Fit to page** | How the already-created PDF pages are placed or scaled on paper. These do not update the page breaks saved in the PDF; an extra adjustment may shrink the map or clip artwork. |
+
+For example, an A4 portrait sheet is 210 × 297 mm. With 5 mm margins on every edge, the exporter splits the map into tiles fitting within 200 × 287 mm. Changing the margins here recalculates those tiles and updates the dashed preview guides. Changing settings in a print app afterward does not change the page split in the saved PDF.
+
+Match the exporter’s sheet margins to your printer’s printable area; the editor does not detect this automatically. Then print at **Actual size / 100%**, with **Fit to page** or **Shrink to fit** disabled, and avoid adding another margin/scaling adjustment. Trim the white sheet margins and join the map edges in row order. PNG and VTT exports are unaffected by sheet margins.
 
 ## Virtual tabletop exports
 
@@ -145,7 +163,7 @@ python3 -m venv .venv
 .venv/bin/python tests/browser_checks.py
 ```
 
-The suite runs the editor in Chromium and checks core interactions, polygon materials and lighting, touch drawing and navigation, VTT encoders/walls/lights, export framing and page scaling, groups, layers, borders, and local save/reload behavior.
+The suite runs the editor in Chromium and checks core interactions, polygon materials and lighting, touch drawing and navigation, VTT encoders/walls/lights, export framing, physical PDF scale and pixel-perfect page reassembly, groups, layers, borders, and local save/reload behavior.
 
 ## Project structure
 
@@ -153,6 +171,7 @@ The suite runs the editor in Chromium and checks core interactions, polygon mate
 js/
   canvas.js        main editor state and interaction logic
   polygons.js      polygon geometry, materials and shadows
+  pdf-layout.js    physical page margins and lossless PDF tiling
   editor-controls.js touch navigation and export framing
   vtt-export.js    VTT images, UVTT geometry and serialization
   vtt-ui.js        platform presets and VTT export dialog
@@ -168,7 +187,7 @@ tests/             Playwright browser integration checks
 docs/              screenshots, examples and additional documentation
 ```
 
-[DOCUMENTATION.MD](DOCUMENTATION.MD) contains older class-level documentation and notes about the previous renderer. [RELEASE_NOTES.md](RELEASE_NOTES.md) describes the current v1.5.0 release in more detail.
+[RELEASE_NOTES.md](RELEASE_NOTES.md) describes the current v1.6.0 release in more detail.
 
 ## Roadmap
 

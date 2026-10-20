@@ -1,3 +1,4 @@
+import { pdfLayout, pdfTiles } from "./pdf-layout.js";
 import { ProjectStore, packProject, unpackProject } from "./project-store.js";
 import { constants } from "./constants.js";
 
@@ -310,38 +311,10 @@ export class StorageManager {
       return;
     }
 
-    const pageOrientation =
-      options.orientation === "portrait" ? "portrait" : "landscape";
-    const pageSizeInput = options.paper === "A3" ? "A3" : "A4";
-    const dpi = Math.max(36, Math.min(600, Number(options.dpi) || 150));
-    const cellSizeCm = Math.max(
-      0.1,
-      Math.min(10, Number(options.cellSize) || 2.5),
-    );
-
-    // Export scale: pixels per logical cell unit
-    const exportScale = (cellSizeCm / 2.54) * dpi; // px per logical cell
-
-    // Page dimensions in mm
-    const pageSizesMM = constants.pageSizesMM;
-    let pageSizeMM = { ...pageSizesMM[pageSizeInput] };
-    if (pageOrientation === "landscape") {
-      [pageSizeMM.width, pageSizeMM.height] = [
-        pageSizeMM.height,
-        pageSizeMM.width,
-      ]; // Swap width/height
-    }
-
-    // Page dimensions in pixels
-    const pxPerMm = dpi / 25.4;
-    const pageWidthPx = Math.floor(pageSizeMM.width * pxPerMm);
-    const pageHeightPx = Math.floor(pageSizeMM.height * pxPerMm);
-    if (pageWidthPx <= 0 || pageHeightPx <= 0) {
-      alert(
-        "Error: Calculated page dimensions are invalid. Check DPI and page size.",
-      );
-      return;
-    }
+    let layout;
+    try { layout = pdfLayout(options); }
+    catch (error) { alert(error.message); return; }
+    const { exportScale } = layout;
 
     // Get map content bounds in logical units
     const bbox = this.canvasManager.getExportBounds(options);
@@ -367,9 +340,7 @@ export class StorageManager {
     );
     console.log(`Export scale: ${exportScale.toFixed(2)} px/unit`);
     console.log(`Total export size: ${exportWidthPx} x ${exportHeightPx} px`);
-    console.log(
-      `Page size: ${pageWidthPx} x ${pageHeightPx} px (${pageSizeInput} ${pageOrientation})`,
-    );
+    console.log(`Printable area: ${layout.contentWidthPx} x ${layout.contentHeightPx} px`);
 
     if (
       exportWidthPx * exportHeightPx > 64000000 ||
@@ -412,90 +383,32 @@ export class StorageManager {
 
     // PDF Generation & Tiling
     console.log("Rendering complete. Generating PDF...");
+    // PDF coordinates are millimeters; image pixels retain their DPI-derived
+    // physical size. Margins reduce each slice, never shrink the complete map.
     const pdf = new jsPDF({
-      orientation: pageOrientation,
-      unit: "px", // Use pixels for page dimensions and image placement
-      format: [pageWidthPx, pageHeightPx],
-      // hotfixes: ['px_scaling'], // May be needed for some jsPDF versions/browsers
+      orientation: layout.orientation,
+      unit: "mm",
+      format: [layout.widthMM, layout.heightMM],
+      precision: 10,
     });
+    let pageNum = 0;
+    try {
+      for (const tile of pdfTiles(layout, exportWidthPx, exportHeightPx)) {
+        const tileCanvas = document.createElement("canvas");
+        tileCanvas.width = tile.sourceWidth;
+        tileCanvas.height = tile.sourceHeight;
+        const tileCtx = tileCanvas.getContext("2d");
+        tileCtx.drawImage(offCanvas, tile.sx, tile.sy, tile.sourceWidth, tile.sourceHeight,
+          0, 0, tile.sourceWidth, tile.sourceHeight);
+        if (pageNum++) pdf.addPage([layout.widthMM, layout.heightMM], layout.orientation);
+        pdf.addImage(tileCanvas.toDataURL("image/png"), "PNG", tile.xMM, tile.yMM,
+          tile.widthMM, tile.heightMM, undefined, "FAST");
 
-    const pagesX = Math.ceil(exportWidthPx / pageWidthPx);
-    const pagesY = Math.ceil(exportHeightPx / pageHeightPx);
-    const totalPages = pagesX * pagesY;
-
-    console.log(`Tiling into ${pagesX} x ${pagesY} = ${totalPages} pages.`);
-
-    // Add map pages
-    for (let py = 0; py < pagesY; py++) {
-      for (let px = 0; px < pagesX; px++) {
-        const pageNum = py * pagesX + px + 1;
-        console.log(`Adding page ${pageNum}/${totalPages}...`);
-
-        // Calculate source region on the offscreen canvas
-        const sx = px * pageWidthPx;
-        const sy = py * pageHeightPx;
-        const sWidth = Math.min(pageWidthPx, exportWidthPx - sx);
-        const sHeight = Math.min(pageHeightPx, exportHeightPx - sy);
-
-        if (sWidth <= 0 || sHeight <= 0) continue; // Skip if tile has no dimensions
-
-        try {
-          // Create a temporary canvas for the tile to get Data URL
-          // This avoids potential issues with drawImage directly from large offscreen canvas in jsPDF
-          const tileCanvas = document.createElement("canvas");
-          tileCanvas.width = sWidth;
-          tileCanvas.height = sHeight;
-          const tileCtx = tileCanvas.getContext("2d");
-          tileCtx.drawImage(
-            offCanvas,
-            sx,
-            sy,
-            sWidth,
-            sHeight,
-            0,
-            0,
-            sWidth,
-            sHeight,
-          );
-          const tileImgData = tileCanvas.toDataURL("image/png"); // Use PNG for lossless
-
-          if (px > 0 || py > 0) {
-            pdf.addPage([pageWidthPx, pageHeightPx], pageOrientation);
-          }
-          // Add image to PDF page at top-left (0,0) with its actual dimensions
-          pdf.addImage(
-            tileImgData,
-            "PNG",
-            0,
-            0,
-            sWidth,
-            sHeight,
-            undefined,
-            "FAST",
-          ); // Use 'FAST' compression
-
-          // Add page number/coordinates (optional)
-          pdf.setFontSize(8);
-          pdf.setTextColor(options.colorMode === "bw" ? 0 : 150);
-          pdf.text(
-            `Page ${pageNum} (${px + 1},${py + 1})`,
-            5,
-            pageHeightPx - 5,
-          );
-        } catch (tileError) {
-          console.error(
-            `Error processing tile for page ${pageNum}:`,
-            tileError,
-          );
-          alert(
-            `Error creating PDF page ${pageNum}. The export might be incomplete.`,
-          );
-          // Optionally add a blank page or error message in the PDF
-          if (px > 0 || py > 0) pdf.addPage();
-          pdf.setTextColor(255, 0, 0);
-          pdf.text(`Error rendering page ${pageNum}`, 20, 20);
-        }
       }
+    } catch (error) {
+      console.error("Error rendering PDF pages", error);
+      alert("Could not render all PDF pages. Try a lower DPI or smaller export area.");
+      return; // Never download a PDF with missing map tiles.
     }
 
     // Save PDF

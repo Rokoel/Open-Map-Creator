@@ -550,7 +550,7 @@
       <form id="pdfForm">
         <h3 id="pdfTitle">Print-ready PDF</h3>
         <p class="hint">
-          The map is tiled across pages at your chosen physical cell size.
+          The map is tiled across printable areas at your chosen physical cell size.
         </p>
         <label class="field"
           >Orientation<select id="pdfOrientation">
@@ -599,9 +599,24 @@
             step="0.25"
             value="1"
         /></label>
+        <fieldset class="sheet-margins">
+          <legend>Margins on every sheet (mm)</legend>
+          <label class="field">Top<input id="pdfMarginTop" type="number" min="0" max="100" step="0.5" value="5" required></label>
+          <label class="field">Right<input id="pdfMarginRight" type="number" min="0" max="100" step="0.5" value="5" required></label>
+          <label class="field">Bottom<input id="pdfMarginBottom" type="number" min="0" max="100" step="0.5" value="5" required></label>
+          <label class="field">Left<input id="pdfMarginLeft" type="number" min="0" max="100" step="0.5" value="5" required></label>
+        </fieldset>
+        <p class="hint">Margins reserve blank paper on each sheet. The map is split into more pages as needed, keeping every pixel at the chosen print scale. Trim the margins to join the sheets.</p>
+        <details>
+          <summary>Sheet margins vs. print-app margins</summary>
+          <p class="hint">These margins change the page split before the PDF is created. Larger margins put less map on each sheet and can add pages, while keeping cell size unchanged. Map-wide padding adds space only around the complete map.</p>
+          <p class="hint">A print app receives already-split PDF pages. Its margin or Fit to page settings may shrink the map or clip its edges; they do not update the page breaks saved in this PDF. Set sheet margins here to suit your printer, then print at Actual size / 100% without adding another scaling or margin adjustment. Trim the blank edges to join sheets.</p>
+        </details>
+        <p id="pdfLayoutSummary" class="hint" role="status"></p>
+        <p class="hint">Print at <strong>Actual size / 100%</strong>. Turn off Fit to page or Shrink to fit.</p>
         <div class="dialog-actions">
           <button id="pdfCancel" type="button">Cancel</button
-          ><button class="primary" type="submit">
+          ><button class="primary" id="pdfDownload" type="submit">
             <svg aria-hidden="true" class="icon" focusable="false">
               <use href="assets/iconoir/sprite.svg#download"></use>
             </svg>

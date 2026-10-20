@@ -66,7 +66,8 @@ def check_polygons_and_export_area(page):
       cm.exportSettings.region={minX:10,minY:5,maxX:20,maxY:12};
       const b=cm.getExportBounds();assert(b.width===10&&b.height===7,'Custom export bounds ignored');
       const {exportPageSize}=await import('./js/editor-controls.js');
-      const landscape=exportPageSize({}),portrait=exportPageSize({orientation:'portrait',cellSize:5});
+      const zero={top:0,right:0,bottom:0,left:0};
+      const landscape=exportPageSize({sheetMargins:zero}),portrait=exportPageSize({orientation:'portrait',cellSize:5,sheetMargins:zero});
       assert(Math.abs(landscape.width-11.88)<.02 && Math.abs(portrait.width-4.2)<.02,'Page guide scale incorrect');
       return {concaveHitTesting:true,textureClipping:true,materialRoundtrip:true,pageScale:true};
     }''')

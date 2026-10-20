@@ -1,3 +1,4 @@
+import { sheetMarginDefaults } from "./pdf-layout.js";
 import { icon } from "./icons.js";
 import { constants } from "./constants.js";
 import { borderDefaults, lightDefaults, ambientDefaults } from "./scene.js";
@@ -154,6 +155,13 @@ export class HUD {
       ["cellSize","Cell size (cm)","number",2.5,{min:.1,max:10,step:.1}],
       ["dpi","Resolution (DPI)","number",150,{min:36,max:600,step:1}],
     ]) this.field(p,label,type,cm.exportSettings[key] ?? fallback,v => cm.exportSettings[key] = v,options);
+    this.hint(p, "These margins reserve blank paper on every sheet and recalculate the PDF page breaks. Larger margins can add pages without shrinking cells. Print-app margins act on the finished pages; print this PDF at Actual size / 100%.");
+    for (const [side, fallback] of Object.entries(sheetMarginDefaults)) {
+      const input = this.field(p, `Sheet ${side} margin (mm)`, "number", cm.exportSettings.sheetMargins?.[side] ?? fallback,
+        value => cm.exportSettings.sheetMargins = { ...sheetMarginDefaults, ...cm.exportSettings.sheetMargins, [side]:value },
+        { min:0, max:100, step:.5 });
+      input.dataset.sheetMargin = side;
+    }
   }
   updateExportFields() {
     const cm = this.canvasManager, p = $("exportAreaFields");
@@ -186,6 +194,10 @@ export class HUD {
   setMapCollapsed(collapsed) {
     if (!collapsed) {
       this.updateExportFields();
+      $("exportPageFields").querySelectorAll("[data-sheet-margin]").forEach(input => {
+        const side = input.dataset.sheetMargin;
+        input.value = this.canvasManager.exportSettings.sheetMargins?.[side] ?? sheetMarginDefaults[side];
+      });
       for (const [i,key] of ["orientation","paper","cellSize","dpi"].entries()) {
         const input = $("exportPageFields").querySelectorAll("input,select")[i];
         if (input) input.value = this.canvasManager.exportSettings[key] ?? ["landscape","A4",2.5,150][i];

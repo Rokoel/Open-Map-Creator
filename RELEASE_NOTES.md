@@ -1,3 +1,34 @@
+# Open Map Creator v1.6.0
+
+Released October 20, 2026.
+
+Export maps for virtual tabletops and print full-size maps on printers that need white margins on each sheet.
+
+**[Open the app](https://rokoel.github.io/Open-Map-Creator/)** · **[Printing guide](README.MD#printing-on-sheets-with-margins)** · **[VTT guide](README.MD#virtual-tabletop-exports)**
+
+## Added
+
+- **VTT export:** D&D Beyond Maps image presets (JPG, PNG, WebP), Roll20 Universal VTT files with embedded map images, grid resolution, blocking walls, and light sources, plus generic VTT presets. Configure resolution, grid visibility, lighting, alignment, and file-size budgets.
+- **Per-sheet PDF margins:** Set top, right, bottom, and left margins in millimeters, with 5 mm defaults. Margins reserve white paper on every sheet, separately from map-wide padding.
+- **Margin-aware page layout:** Increasing margins reduces the map area on each page and can add pages. The editable export area's dashed divisions and PDF page count follow the same printable-area calculation.
+- **Printing explanations:** The PDF dialog, page-guide settings, and README explain the difference between export margins, map padding, and print-app margins. Print at Actual size / 100% to preserve physical cell size.
+
+## Fixed
+
+- PDF pages use physical millimeter coordinates. Every raster pixel keeps its DPI-derived print size; partial final tiles retain their size. Page splitting covers the complete export area without lost or duplicated pixels.
+- PDF creation stops if a map tile cannot render, instead of downloading an incomplete map.
+
+## Cleanup
+
+- Removed the obsolete class-reference document and its references.
+- Removed eight unreferenced images, GIFs, and raster icons (about 11.2 MB). Current gallery images, example exports, and the active SVG icon remain available.
+
+## Validation
+
+The full Chromium suite covers VTT encoders and geometry, actual downloads, 24 paper/orientation/DPI/margin combinations, asymmetric margins, physical PDF page dimensions, pixel-perfect reconstruction from PDF tiles, matching page guides, and saved margin settings. Existing polygon, mobile, lighting, group, border, tileset, and autosave checks remain included. Signed-in third-party VTT imports and physical printer output are not automatically tested.
+
+---
+
 # Open Map Creator v1.5.0
 
 Released October 20, 2026.

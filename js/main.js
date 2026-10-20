@@ -1,3 +1,4 @@
+import { pdfLayout, sheetMarginDefaults } from "./pdf-layout.js";
 import { setupVTTExport } from "./vtt-ui.js";
 import { polygonDefaults } from "./polygons.js";
 import { CanvasManager } from "./canvas.js";
@@ -31,6 +32,37 @@ document.addEventListener("DOMContentLoaded", async () => {
     .getElementById("importMap")
     .addEventListener("click", () => storageManager.importMap());
 
+  const marginIds = { top: "pdfMarginTop", right: "pdfMarginRight", bottom: "pdfMarginBottom", left: "pdfMarginLeft" };
+  const pdfOptions = () => ({
+    orientation: document.getElementById("pdfOrientation").value,
+    paper: document.getElementById("pdfPaper").value,
+    dpi: document.getElementById("pdfDpi").value,
+    cellSize: document.getElementById("pdfCellSize").value,
+    colorMode: document.getElementById("pdfColorMode").value,
+    padding: document.getElementById("pdfPadding").value,
+    sheetMargins: Object.fromEntries(Object.entries(marginIds).map(([side,id]) => [side, Number(document.getElementById(id).value)])),
+  });
+  const updatePDFSummary = () => {
+    try {
+      const options = pdfOptions(), layout = pdfLayout(options);
+      const bounds = canvasManager.getExportBounds(options);
+      const columns = Math.ceil(Math.ceil(bounds.width * layout.exportScale) / layout.contentWidthPx);
+      const rows = Math.ceil(Math.ceil(bounds.height * layout.exportScale) / layout.contentHeightPx);
+      document.getElementById("pdfLayoutSummary").textContent = `${columns} × ${rows} = ${columns * rows} sheets · Printable area ${(layout.contentWidthPx / layout.pixelsPerMM).toFixed(1)} × ${(layout.contentHeightPx / layout.pixelsPerMM).toFixed(1)} mm · ${layout.cellSizeCM} cm cells`;
+      document.getElementById("pdfDownload").disabled = false;
+    } catch (error) {
+      document.getElementById("pdfLayoutSummary").textContent = error.message;
+      document.getElementById("pdfDownload").disabled = true;
+    }
+  };
+  document.getElementById("pdfForm").addEventListener("input", updatePDFSummary);
+  for (const [side,id] of Object.entries(marginIds)) {
+    document.getElementById(id).addEventListener("change", event => {
+      if (!event.target.checkValidity()) return;
+      canvasManager.exportSettings.sheetMargins = { ...sheetMarginDefaults, ...canvasManager.exportSettings.sheetMargins, [side]: Number(event.target.value) };
+      canvasManager.saveHistory(); canvasManager.render(); updatePDFSummary();
+    });
+  }
   for (const id of ["exportPDF", "exportPDFPrimary"])
     document.getElementById(id).addEventListener("click", () => {
       for (const [id,key,fallback] of [["pdfOrientation","orientation","landscape"],["pdfPaper","paper","A4"],["pdfDpi","dpi",150],["pdfCellSize","cellSize",2.5]])
@@ -39,6 +71,9 @@ document.addEventListener("DOMContentLoaded", async () => {
         canvasManager.exportSettings.colorMode;
       document.getElementById("pdfPadding").value =
         canvasManager.exportSettings.padding;
+      for (const [side,id] of Object.entries(marginIds))
+        document.getElementById(id).value = canvasManager.exportSettings.sheetMargins?.[side] ?? sheetMarginDefaults[side];
+      updatePDFSummary();
       document.getElementById("pdfDialog").showModal();
     });
 
@@ -52,20 +87,13 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (!e.target.checkValidity()) return;
       canvasManager.exportSettings[key] = ["dpi","cellSize","padding"].includes(key) ? Number(e.target.value) : e.target.value;
       canvasManager.saveHistory(); canvasManager.render();
-      hud.updateAppearanceControls();
+      hud.updateAppearanceControls(); updatePDFSummary();
     });
   }
   document.getElementById("pdfForm").addEventListener("submit", (event) => {
     event.preventDefault();
     document.getElementById("pdfDialog").close();
-    storageManager.exportPDF({
-      orientation: document.getElementById("pdfOrientation").value,
-      paper: document.getElementById("pdfPaper").value,
-      dpi: document.getElementById("pdfDpi").value,
-      cellSize: document.getElementById("pdfCellSize").value,
-      colorMode: document.getElementById("pdfColorMode").value,
-      padding: document.getElementById("pdfPadding").value,
-    });
+    storageManager.exportPDF(pdfOptions());
   });
 
   document.getElementById("clearCanvas").addEventListener("click", () => {

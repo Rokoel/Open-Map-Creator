@@ -1,22 +1,20 @@
-import { constants } from "./constants.js";
+import { pdfLayout } from "./pdf-layout.js";
 
-// Match the PDF raster page rounding exactly, including non-integer cell sizes.
 export function exportPageSize(settings) {
-  const paper = constants.pageSizesMM[settings.paper] || constants.pageSizesMM.A4;
-  const dpi = Math.max(36, Math.min(600, Number(settings.dpi) || 150));
-  const cell = Math.max(.1, Math.min(10, Number(settings.cellSize) || 2.5));
-  const landscape = settings.orientation !== "portrait";
-  const scale = cell / 2.54 * dpi;
-  return {
-    width: Math.floor((landscape ? paper.height : paper.width) * dpi / 25.4) / scale,
-    height: Math.floor((landscape ? paper.width : paper.height) * dpi / 25.4) / scale,
-  };
+  const layout = pdfLayout(settings);
+  return { width: layout.widthCells, height: layout.heightCells };
 }
 
 export function drawExportOverlay(manager, view) {
   if (!manager.exportOverlay) return;
   const ctx = manager.ctx, size = manager.currentCellSize;
-  const b = manager.getExportBounds(), page = exportPageSize(manager.exportSettings);
+  const b = manager.getExportBounds();
+  let page;
+  try { page = exportPageSize(manager.exportSettings); }
+  catch (error) {
+    // Invalid imported settings must not break map rendering or hide the frame.
+    page = { width: Infinity, height: Infinity };
+  }
   const x = b.minX * size, y = b.minY * size, w = b.width * size, h = b.height * size;
   ctx.save();
   ctx.beginPath();

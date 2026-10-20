@@ -759,3 +759,7 @@ dialog { max-height: calc(100dvh - 24px); overflow-y: auto; }
 @media (max-width: 700px) {
   #vttDialog input, #vttDialog select, #vttDialog button { min-height: 44px; }
 }
+
+.sheet-margins { border: 1px solid var(--line); border-radius: 8px; margin: 18px 0 12px; padding: 4px 12px; min-width: 0; }
+.sheet-margins legend { padding: 0 5px; font-size: 12px; font-weight: 600; }
+#pdfLayoutSummary { overflow-wrap: anywhere; }
