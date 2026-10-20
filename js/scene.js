@@ -371,9 +371,9 @@ export function drawScene(
   manager,
   ctx,
   bounds,
-  { editor = false, whiteBackground = false } = {},
+  { editor = false, whiteBackground = false, showGrid = true, lighting = true } = {},
 ) {
-  invalidateLightingBake(manager);
+  if (lighting) invalidateLightingBake(manager);
   const size = manager.currentCellSize,
     old = manager.ctx;
   const buffer = document.createElement("canvas");
@@ -386,6 +386,7 @@ export function drawScene(
       ...manager.emptyCellSettings,
       fillColor: "#ffffff",
       pattern: null,
+      showGrid,
     });
     backgroundDrawn = true;
   }
@@ -397,13 +398,13 @@ export function drawScene(
       layerContext.setTransform(ctx.getTransform());
       manager.ctx = layerContext;
       if (!backgroundDrawn) {
-        manager.drawGrid(layerContext, size, bounds);
+        manager.drawGrid(layerContext, size, bounds, { ...manager.emptyCellSettings, showGrid });
         backgroundDrawn = true;
       }
-      for (const cell of layer.objects.values()) manager.drawGridCell(cell);
+      for (const cell of layer.objects.values()) manager.drawGridCell(cell, { showGrid });
       const global = { ...ambientDefaults, ...layer.globalLight };
       if (
-        global.globalEnabled &&
+        lighting && global.globalEnabled &&
         global.shadowLength > 0 &&
         global.shadowOpacity > 0
       )
@@ -427,7 +428,7 @@ export function drawScene(
           layer.gridShadowOptions,
         );
 
-      if (global.globalEnabled) drawPolygonShadows(manager, layerContext, index, {
+      if (lighting && global.globalEnabled) drawPolygonShadows(manager, layerContext, index, {
         enabled:true, angle:global.angle, offset:global.shadowLength,
         color:global.shadowColor + Math.round(global.shadowOpacity*255).toString(16).padStart(2,"0"),
         softness:global.shadowSoftness,
@@ -440,7 +441,7 @@ export function drawScene(
           manager.drawCustomObject(obj);
       // Light each surface once using all lights that can reach its layer. Keeping
       // layer transparency avoids multiplying darkness onto lower layers.
-      drawLighting(manager, layerContext, index, bounds);
+      if (lighting) drawLighting(manager, layerContext, index, bounds);
       drawBorderTopology(
         manager,
         layerContext,
@@ -458,7 +459,7 @@ export function drawScene(
       ctx.drawImage(buffer, 0, 0);
       ctx.restore();
     });
-    if (!backgroundDrawn) manager.drawGrid(ctx, size, bounds);
+    if (!backgroundDrawn) manager.drawGrid(ctx, size, bounds, { ...manager.emptyCellSettings, showGrid });
   } finally {
     manager.ctx = old;
   }

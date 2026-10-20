@@ -488,6 +488,11 @@
             <button id="resetExportArea">Fit area to artwork</button>
             <details><summary>PDF page guides</summary><div id="exportPageFields"></div></details>
           </div>
+          <section id="vttControls">
+            <h3>Virtual tabletops</h3>
+            <p class="hint">Export maps for D&amp;D Beyond, Roll20, and other VTTs.</p>
+            <button id="exportVTT">Export for VTT</button>
+          </section>
           <div id="dataControls">
             <h3>Project files</h3>
             <p class="hint">
@@ -603,6 +608,35 @@
             Export PDF
           </button>
         </div>
+      </form>
+    </dialog>
+    <dialog id="vttDialog" aria-labelledby="vttTitle">
+      <form id="vttForm">
+        <h3 id="vttTitle">Export for virtual tabletop</h3>
+        <fieldset id="vttFields">
+          <label class="field">Platform<select id="vttTarget">
+            <option value="roll20">Roll20</option><option value="dndbeyond">D&amp;D Beyond Maps</option><option value="universal">Other VTT / Universal VTT</option>
+          </select></label>
+          <label class="field">Format<select id="vttFormat">
+            <option value="uvtt">Universal VTT (.uvtt)</option><option value="jpg">JPG</option><option value="png">PNG</option><option value="webp">WebP</option>
+          </select></label>
+          <label class="field">Pixels per cell<input id="vttPixels" type="number" min="16" max="300" step="1" required></label>
+          <label class="field">Image quality<input id="vttQuality" type="range" min="0.35" max="1" step="0.05"></label>
+          <label class="field">File budget (MB; 0 = unlimited)<input id="vttBudget" type="number" min="0" max="100" step="0.1" required></label>
+          <p class="hint">Set the budget to your account’s upload limit. JPG/WebP quality is reduced if needed; grid resolution stays fixed.</p>
+          <label class="field">Align frame to whole cells<input id="vttAlign" type="checkbox"></label>
+          <label class="field">Include grid lines<input id="vttGrid" type="checkbox"></label>
+          <label class="field">Include editor lighting in image<input id="vttLighting" type="checkbox"></label>
+          <div id="vttDynamicFields">
+            <label class="field">Export blocking walls<input id="vttWalls" type="checkbox"></label>
+            <label class="field">Export light sources<input id="vttLights" type="checkbox"></label>
+            <p class="hint">Walls follow solid cell, polygon, and image-object outlines. Disable Blocks light on floors. Visible layers are flattened; review lighting after import. Light sources are omitted when lighting is included in the image.</p>
+          </div>
+        </fieldset>
+        <p class="hint" id="vttSummary" role="status"></p>
+        <p class="hint" id="vttInstructions"></p>
+        <p class="hint" id="vttStatus" role="status" aria-live="polite"></p>
+        <div class="dialog-actions"><button id="vttCancel" type="button">Close</button><button class="primary" id="vttDownload" type="submit">Download map</button></div>
       </form>
     </dialog>
     <div id="canvasActions">

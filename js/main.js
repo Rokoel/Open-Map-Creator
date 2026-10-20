@@ -1,3 +1,4 @@
+import { setupVTTExport } from "./vtt-ui.js";
 import { polygonDefaults } from "./polygons.js";
 import { CanvasManager } from "./canvas.js";
 import { HUD } from "./hud.js";
@@ -13,6 +14,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const storageManager = new StorageManager(canvasManager);
   await storageManager.autoLoadMap();
   const hud = new HUD(canvasManager, storageManager);
+  setupVTTExport(canvasManager, storageManager);
   canvasEl.style.pointerEvents = "auto";
   window.appReady = true;
   // Ensure HUD reflects the state (either default or loaded)

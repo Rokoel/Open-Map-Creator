@@ -2036,7 +2036,7 @@ export class CanvasManager {
             }
           }
           // Draw the border
-          ctx.strokeRect(x, y, cellSize, cellSize);
+          if (appearance.showGrid !== false) ctx.strokeRect(x, y, cellSize, cellSize);
         }
       }
     }
@@ -2145,7 +2145,7 @@ export class CanvasManager {
     ctx.restore();
   }
 
-  drawGridCell(cell) {
+  drawGridCell(cell, { showGrid = true } = {}) {
     const ctx = this.ctx;
     const x = cell.x * this.currentCellSize;
     const y = cell.y * this.currentCellSize;
@@ -2186,7 +2186,7 @@ export class CanvasManager {
     // Draw border for the cell itself
     ctx.strokeStyle = cell.borderColor;
     ctx.lineWidth = this.currentCellSize / constants.baseCellSize; // Use same line width as grid
-    if (cell.outlineEnabled ?? cell.type !== "image")
+    if (showGrid && (cell.outlineEnabled ?? cell.type !== "image"))
       ctx.strokeRect(x, y, size, size);
     ctx.restore();
   }
@@ -2541,7 +2541,7 @@ export class CanvasManager {
         maxX: bbox.maxX * size,
         maxY: bbox.maxY * size,
       },
-      { whiteBackground: options.colorMode && options.colorMode !== "color" },
+      { whiteBackground: options.colorMode && options.colorMode !== "color", showGrid: options.showGrid ?? true, lighting: options.lighting ?? true },
     );
     ctx.restore();
   }

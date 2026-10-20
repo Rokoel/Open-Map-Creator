@@ -19,6 +19,7 @@ A browser-based map editor for tabletop RPGs. Draw dungeons, add textures and ob
 - Procedural dungeon borders and custom edge/corner artwork.
 - Undo/redo and local autosave with IndexedDB.
 - Editable JSON, PNG, and tiled PDF export with a movable, resizable export frame.
+- VTT export presets for D&D Beyond Maps and Roll20, including Universal VTT walls and lights.
 - PDF export supports a chosen physical cell size for printing battle maps at scale.
 - Plain JavaScript, HTML, CSS, and Canvas 2D. No framework or build step.
 
@@ -113,6 +114,26 @@ On phones and tablets, use one finger for the chosen tool and two fingers to pan
 
 In **Map → Export area**, use **Edit export area** to overlay the output frame. Drag inside the frame to move it, drag a corner to resize it, or enter its position and dimensions in cells. **Finish editing area** returns to drawing. Dashed page guides follow the paper size, orientation, physical cell size, and DPI under **PDF page guides**, which share the PDF dialog’s settings. The chosen frame applies to both PNG and PDF exports and is saved in the project. **Fit area to artwork** restores automatic bounds, including padding and shadows; padding applies only to automatic bounds.
 
+## Virtual tabletop exports
+
+Open **Map → Export for VTT**. Choose a platform and format, then download the map. These exports use the current export area and color mode; the editable map stays unchanged.
+
+| Target | Output | Import workflow |
+| --- | --- | --- |
+| D&D Beyond Maps | JPG, PNG, or WebP; preset 100 pixels/cell | Upload a custom map image, then calibrate its grid using the cell dimensions shown in the dialog and filename. |
+| Roll20 | Universal VTT (`.uvtt`); preset 70 pixels/cell | Open **Create Page → Upload Background**, then select the file. Roll20 reads the background, grid scale, blocking walls, and light sources. Dynamic Lighting use depends on your subscription. |
+| Roll20 image / other VTT | JPG, PNG, WebP, or Universal VTT | Upload the image on the map/background layer and set its size in cells, or use your VTT’s Universal VTT importer. |
+
+**Include grid lines** defaults off so the VTT can draw its own grid. **Align frame to whole cells** expands the frame outward without moving artwork or changing the saved export area. UVTT always uses whole-cell alignment. Image exports can retain an exact fractional frame; the dialog reports the pixel offset needed for grid alignment. Resolution remains fixed at your chosen pixels/cell, even when image quality is reduced.
+
+**Include editor lighting in image** preserves the map’s lighting in a static image. For UVTT, leave it off to let the VTT light the map dynamically. When it is on, light sources are omitted from the UVTT data to avoid lighting the same image twice. The **File budget** is configurable to match your account’s upload allowance; 0 disables the budget. JPG/WebP quality is reduced as needed. If a file still exceeds the budget, export stops with guidance instead of silently resizing the grid.
+
+UVTT blocking walls follow visible solid cells, polygons, and image-object rectangles with **Blocks light** enabled. Adjacent solid grid cells share an exterior outline; internal seams are omitted. Disable blocking on floors or disable wall export if the map should stay open. Walls are clipped to the export area, hidden layers are excluded, and light sources inside the frame retain their position, color, range, and intensity. Layers are flattened into one scene; UVTT cannot reproduce the editor’s per-layer lighting or sampled rebounds. There are no inferred doors or windows. Review imported walls and lighting in your VTT.
+
+D&D Beyond support here is an image import workflow, with walls and lighting configured in Maps separately. These are downloadable files, not a direct account integration. The downloads are validated by browser tests; imports inside signed-in third-party VTT sessions have not been tested automatically.
+
+Platform references: [D&D Beyond supported image formats](https://dndbeyond-support.wizards.com/hc/en-us/articles/46363725057556-What-file-formats-work-for-uploading-images-and-videos), [Roll20 native UVTT upload](https://blog.roll20.net/posts/page-menu-updates/), [Roll20’s UVTT importer source](https://github.com/Roll20/roll20-api-scripts/tree/master/UniversalVTTImporter).
+
 ## Testing
 
 Browser integration tests use Python and Playwright:
@@ -124,7 +145,7 @@ python3 -m venv .venv
 .venv/bin/python tests/browser_checks.py
 ```
 
-The suite runs the editor in Chromium and checks core interactions, polygon materials and lighting, touch drawing and navigation, export framing and page scaling, groups, layers, borders, and local save/reload behavior.
+The suite runs the editor in Chromium and checks core interactions, polygon materials and lighting, touch drawing and navigation, VTT encoders/walls/lights, export framing and page scaling, groups, layers, borders, and local save/reload behavior.
 
 ## Project structure
 
@@ -133,6 +154,8 @@ js/
   canvas.js        main editor state and interaction logic
   polygons.js      polygon geometry, materials and shadows
   editor-controls.js touch navigation and export framing
+  vtt-export.js    VTT images, UVTT geometry and serialization
+  vtt-ui.js        platform presets and VTT export dialog
   scene.js         shared rendering and lighting
   geometry.js      hit testing, visibility and contour geometry
   borders.js       procedural border generation
@@ -154,7 +177,6 @@ Planned ideas include:
 - Layer locking.
 - Alignment and snapping tools.
 - More built-in textures and symbols.
-- VTT-oriented export formats.
 - Brush path connections and measurement tools.
 - Further performance work for very large maps.
 

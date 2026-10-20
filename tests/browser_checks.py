@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import threading
 from playwright.sync_api import sync_playwright
+from vtt_checks import check_vtt_exports
 from polygon_mobile_checks import check_polygons_and_export_area, check_mobile_controls
 from followup_checks import check_followups
 from texture_checks import check_texture_updates
@@ -182,6 +183,7 @@ def run():
             with page.expect_download() as download:
                 page.locator('#pdfForm button[type=submit]').click()
             assert download.value.suggested_filename.endswith('.pdf')
+        vtt=check_vtt_exports(page)
         polygons=check_polygons_and_export_area(page)
         followup=check_followups(page)
         texture=check_texture_updates(page)
@@ -205,7 +207,7 @@ def run():
         mobile=check_mobile_controls(browser, page.url)
         browser.close()
     server.shutdown()
-    print(json.dumps({'status':'PASS','polygons':polygons,'mobile':mobile,'followup':followup,'texture':texture,'studio':studio,'editor':editor,'layer_brush':layer_brush,'tileset':tileset,'groups':groups,'reliability':reliability,'autosave':autosave,'geometry':geometry,'lighting':lighting,'border_pixels':borders,'pdf_download_checked':pdf_available}))
+    print(json.dumps({'status':'PASS','vtt':vtt,'polygons':polygons,'mobile':mobile,'followup':followup,'texture':texture,'studio':studio,'editor':editor,'layer_brush':layer_brush,'tileset':tileset,'groups':groups,'reliability':reliability,'autosave':autosave,'geometry':geometry,'lighting':lighting,'border_pixels':borders,'pdf_download_checked':pdf_available}))
 
 if __name__=='__main__':
     run()
