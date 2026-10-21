@@ -763,3 +763,12 @@ dialog { max-height: calc(100dvh - 24px); overflow-y: auto; }
 .sheet-margins { border: 1px solid var(--line); border-radius: 8px; margin: 18px 0 12px; padding: 4px 12px; min-width: 0; }
 .sheet-margins legend { padding: 0 5px; font-size: 12px; font-weight: 600; }
 #pdfLayoutSummary { overflow-wrap: anywhere; }
+
+#appDialogMessage { white-space: pre-wrap; overflow-wrap: anywhere; }
+.dialog-error { color: var(--text); border-left: 3px solid #c74444; padding-left: 10px; }
+
+.object-library { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.object-asset { display: flex; flex-direction: column; gap: 6px; align-items: center; min-width: 0; padding: 8px; }
+.object-asset[aria-pressed="true"] { border-color: var(--accent); background: var(--soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.object-asset img { width: 100%; height: 72px; object-fit: contain; }
+.object-asset span { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }

@@ -26,7 +26,7 @@ def check_groups_and_light_layers(page):
     page.evaluate("cm.selectedObjects={grid:[],free:[],custom:[]};cm.render()")
     page.mouse.click(600,300)
     assert page.evaluate('cm.selectedObjects.custom.length===2')
-    handle=page.evaluate('cm.handlePoints(cm.selectionGroup())[0]')
+    handle=page.evaluate('cm.handlePoints(cm.selectionGroup())[8]')
     # Pointer starts to the right of the pivot after the 90° numeric rotation.
     page.mouse.move(handle['x'],handle['y']);page.mouse.down()
     page.mouse.move(600,400+abs(handle['x']-600),steps=8);page.mouse.up()

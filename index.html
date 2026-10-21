@@ -74,12 +74,6 @@
       <button data-instrument="pan" title="Pan (H)">
         <svg aria-hidden="true" class="icon" focusable="false"><use href="assets/iconoir/sprite.svg#cursor-pointer"></use></svg>Pan
       </button>
-      <button data-instrument="erase" title="Eraser (E)">
-        <svg aria-hidden="true" class="icon" focusable="false">
-          <use href="assets/iconoir/sprite.svg#erase"></use></svg
-        >Erase
-      </button>
-
       <button data-instrument="addObject" title="Place image object (O)">
         <svg aria-hidden="true" class="icon" focusable="false">
           <use href="assets/iconoir/sprite.svg#media-image"></use></svg
@@ -546,6 +540,20 @@
         </section>
       </div>
     </aside>
+    <dialog id="appDialog" aria-labelledby="appDialogTitle" aria-describedby="appDialogMessage">
+      <form id="appDialogForm" novalidate>
+        <h3 id="appDialogTitle"></h3>
+        <p id="appDialogMessage"></p>
+        <label id="appDialogField" class="field" hidden>Length (cells)
+          <input id="appDialogInput" type="number" step="any" min="0" aria-describedby="appDialogError">
+        </label>
+        <p id="appDialogError" class="dialog-error" role="alert" hidden></p>
+        <div class="dialog-actions">
+          <button id="appDialogCancel" type="button">Cancel</button>
+          <button id="appDialogAccept" class="primary" type="submit">OK</button>
+        </div>
+      </form>
+    </dialog>
     <dialog aria-labelledby="pdfTitle" id="pdfDialog">
       <form id="pdfForm">
         <h3 id="pdfTitle">Print-ready PDF</h3>
@@ -571,7 +579,7 @@
             min="36"
             required=""
             type="number"
-            value="150"
+            value="300"
         /></label>
         <label class="field"
           >Cell size (cm)<input
@@ -660,7 +668,7 @@
     </div>
     <footer>
       <span id="toolStatus">Grid brush</span
-      ><span>Scroll to zoom · Pan tool or two fingers to move · Pinch to zoom</span
+      ><span>Scroll to zoom · Right-drag to erase · Pan tool or two fingers to move</span
       ><button id="resetView" title="Reset zoom and pan">
         <svg aria-hidden="true" class="icon" focusable="false">
           <use href="assets/iconoir/sprite.svg#frame"></use>

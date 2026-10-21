@@ -1,53 +1,116 @@
 # Open Map Creator
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENCE)
-[![Release: v1.6.0](https://img.shields.io/badge/release-v1.6.0-blue.svg)](https://github.com/Rokoel/Open-Map-Creator/releases/tag/v1.6.0)
+[![Release: v2.0.0](https://img.shields.io/badge/release-v2.0.0-blue.svg)](https://github.com/Rokoel/Open-Map-Creator/releases/tag/v2.0.0)
 
-A browser-based map editor for tabletop RPGs. Draw dungeons, add textures and objects, place lights, and export maps as images or printable PDFs with a chosen physical cell size.
+A browser map editor for tabletop RPGs. Draw dungeons, add textures and objects, place lights, and export a map for a virtual tabletop or print it across several sheets at the cell size you choose.
 
 **[Open the app](https://rokoel.github.io/Open-Map-Creator/)** · **[Release notes](RELEASE_NOTES.md)** · **[Example PDF](docs/examples/open-map-creator-example.pdf)**
 
 ![Open Map Creator in dark mode](docs/media/editor-layers-lighting.png)
 
-## Highlights
+<a id="polygons-touch-controls-and-export-framing"></a>
 
-- Infinite canvas with pan, zoom, grid drawing, polygons, brushes, image objects, and layers.
-- Mobile touch drawing, pinch zoom, two-finger pan, and collapsible settings.
-- Randomized tilesets with rotation, mirroring, and color variation.
-- Object selection, resize/rotate handles, copy/paste, grouping, and layer transfer.
-- Layer-aware lights, ray-cast shadows, ambient lighting, and optional baked lightmaps.
-- Procedural dungeon borders and custom edge/corner artwork.
-- Undo/redo and local autosave with IndexedDB.
-- Editable JSON, PNG, and tiled PDF export with a movable, resizable export frame.
-- VTT export presets for D&D Beyond Maps and Roll20, including Universal VTT walls and lights.
-- PDF export supports a chosen physical cell size for printing battle maps at scale.
-- Plain JavaScript, HTML, CSS, and Canvas 2D. No framework or build step.
+## Drawing and editing
 
-## Gallery
+Use grid cells, freehand brushes, or polygons to draw a map. Cells and polygons can have uploaded textures; tilesets and brushes support random texture, rotation, size, and color variations.
 
-### Editor and tileset controls
+Upload PNG, JPEG, or SVG objects to the Object menu, then choose a saved thumbnail to place it again. The uploaded library is saved with the project. Select placed objects to move, resize, rotate, mirror, or group them. Group resize handles and size fields scale members and their spacing together, preserving proportions. Arrow keys move the selection one cell; Shift+Arrow moves it ten cells. You can reorder layers, hide them, and move objects between them. Opening Layers or changing layers keeps the current drawing tool active.
 
-![Open Map Creator showing tileset controls and lighting](docs/media/editor-tileset-tools.png)
+Lights cast shadows from blocking objects. Each layer has its own lighting and border settings, including procedural borders or custom edge and corner images. Bake lighting to cache it for faster navigation and export.
 
-### PNG exports
+To draw a polygon, choose **Polygon** (`P`) and click or tap its vertices. Click the first vertex, press Enter, or use **Finish polygon** to close it. **Remove last vertex** corrects a point; **Cancel** or Escape discards the draft. Select a finished polygon to edit its texture and appearance.
 
-| Textured map | Lighting-focused version |
+On a phone or tablet, draw with one finger and pan or pinch to zoom with two. The **Pan** tool also moves the map with one finger. Tap **Map** or the tool inspector's title to expand or collapse its settings.
+
+## Controls
+
+| Shortcut | Action |
 | --- | --- |
-| [![Textured dungeon PNG](docs/media/map-textured.png)](docs/media/map-textured.png) | [![Dungeon lighting PNG](docs/media/map-lighting-only.png)](docs/media/map-lighting-only.png) |
+| V / G / B | Select / Grid / Brush |
+| Right mouse click / drag | Erase objects on the active visible layer |
+| O / L / K | Image object / Light / Layers |
+| P / H | Polygon / Pan |
+| Enter (Polygon tool) | Finish polygon |
+| Middle mouse drag / scroll | Pan / zoom |
+| Two-finger drag / pinch | Touch pan / zoom |
+| Shift-drag (Select tool) | Add to selection |
+| Arrow keys / Shift+Arrow | Move selection one / ten cells |
+| Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z | Undo / redo |
+| Ctrl/Cmd+C / Ctrl/Cmd+V | Copy / paste |
+| Ctrl/Cmd+G / Ctrl/Cmd+Shift+G | Group / ungroup |
+| Delete or Backspace / Escape | Delete selection / deselect |
+| Alt+scroll or [ / ] (Brush tool) | Change brush size |
 
-### Printed map
+## Saving and export
 
-The PDF exporter can tile a large map across several pages while keeping the requested cell size.
+The app autosaves in your browser using IndexedDB. Use **Save JSON** to keep a separate editable copy of your project, and **Open JSON** to load one.
 
-| 2.5 cm cell | Four-sheet map |
+- **PNG** saves the map as a single image.
+- **PDF** splits the map across A4 or A3 sheets. Set the orientation, physical cell size, resolution, and sheet margins before downloading. The default resolution is **300 DPI**; existing projects keep their saved resolution.
+- **Export for VTT** saves JPG, PNG, WebP, or Universal VTT files with a chosen number of pixels per cell.
+
+PNG and PDF exports also offer color, grayscale, and black-and-white output.
+
+### Export area
+
+In **Map → Export area**, click **Edit export area**. Drag inside the frame to move it, drag a corner to resize it, or enter its position and size in cells. Click **Finish editing area** to return to drawing. The frame is saved with the project and applies to PNG and PDF exports; VTT exports use it as their starting area.
+
+**Fit area to artwork** removes the custom frame and restores automatic bounds around the artwork, including shadows and **Padding (cells)**. Padding only affects automatic bounds.
+
+The dashed lines show PDF page breaks. **PDF page guides** and the PDF dialog share paper, orientation, cell size, DPI, and margin settings. Changes stay in sync between both places, including after undo/redo and resets. **Reset everything** restores 300 DPI and 5 mm sheet margins.
+
+## Printing on sheets with margins
+
+Set **Cell size (cm)** to the size you want on paper. In the PDF dialog, **Margins on every sheet (mm)** reserves blank space at the top, right, bottom, and left of each sheet. The default is **5 mm per edge**. Adjust these values to your printer's printable area; use 0 only if it supports borderless printing.
+
+| Setting | Effect |
 | --- | --- |
-| [![Printed map cell beside a ruler](docs/media/printed-cell-2-5cm.jpg)](docs/media/printed-cell-2-5cm.jpg) | [![Printed dungeon map assembled from four sheets](docs/media/printed-map-four-sheets.jpg)](docs/media/printed-map-four-sheets.jpg) |
+| **Padding (cells)** | Adds space around the complete map when using automatic bounds. |
+| **Sheet margins (mm)** | Reserves paper on each sheet. Larger margins can add pages without shrinking cells. |
+| **Print-app scaling** | Resizes the finished PDF when printing. Use Actual size / 100% to keep the chosen cell size. |
 
-See the **[four-page example PDF](docs/examples/open-map-creator-example.pdf)**.
+For example, A4 portrait with 5 mm margins leaves a 200 × 287 mm printable area. The exporter tiles the map to fit that space, and the page guides show the same split.
 
-## Getting started
+Print at **Actual size / 100%**, with **Fit to page** and **Shrink to fit** disabled. Trim the white edges and join the sheets. Sheet margins do not affect PNG or VTT exports.
 
-Use the **[hosted app](https://rokoel.github.io/Open-Map-Creator/)**, or run a local copy:
+## Virtual tabletop exports
+
+Open **Map → Export for VTT**, choose a target and format, and download the file.
+
+| Preset | Default output |
+| --- | --- |
+| D&D Beyond Maps | JPG at 100 pixels per cell |
+| Roll20 | Universal VTT (`.uvtt`) at 70 pixels per cell |
+
+For an image export, upload the file to your VTT and use the cell dimensions shown in the export dialog and filename to set its size. Configure walls and lights in the VTT separately. A Universal VTT file includes the background, grid scale, and any enabled wall and light data; import support depends on the VTT.
+
+**Include grid lines** defaults off so the VTT can draw its own grid. **Align frame to whole cells** expands the export area outward without moving artwork. Universal VTT always uses whole cells; exact image frames report the pixel offset for grid alignment.
+
+For dynamic lighting, leave **Include editor lighting in image** off. Turning it on bakes the lighting into the background and omits light sources from the UVTT data. Walls follow visible cells, polygons, and image rectangles with **Blocks light** enabled. Layers are flattened, and the editor's per-layer lighting and light rebounds are not reproduced by UVTT. Check the imported walls and lights before using the map.
+
+The **File budget** limits download size; 0 disables it. JPG and WebP quality can be reduced to fit the budget while keeping the chosen pixels per cell.
+
+<a id="gallery"></a>
+<a id="gallery-and-example-downloads"></a>
+
+## Examples
+
+![Tileset controls and lighting](docs/media/editor-tileset-tools.png)
+
+| Textured map | Lighting version |
+| --- | --- |
+| [![Textured dungeon](docs/media/map-textured.png)](docs/media/map-textured.png) | [![Dungeon lighting](docs/media/map-lighting-only.png)](docs/media/map-lighting-only.png) |
+
+| Printed 2.5 cm cell | Map assembled from four sheets |
+| --- | --- |
+| [![Cell beside a ruler](docs/media/printed-cell-2-5cm.jpg)](docs/media/printed-cell-2-5cm.jpg) | [![Four-sheet map](docs/media/printed-map-four-sheets.jpg)](docs/media/printed-map-four-sheets.jpg) |
+
+Download the [four-page example PDF](docs/examples/open-map-creator-example.pdf).
+
+## Run locally
+
+There is no build step. Serve the repository over HTTP so its JavaScript modules load:
 
 ```bash
 git clone https://github.com/Rokoel/Open-Map-Creator.git
@@ -55,154 +118,10 @@ cd Open-Map-Creator
 python3 -m http.server 8000
 ```
 
-Then open **http://localhost:8000**.
-
-The project uses JavaScript modules, so serving it over HTTP is recommended. PDF creation uses jsPDF from a CDN. Third-party attributions are listed in [CREDITS.md](CREDITS.md).
-
-## Controls
-
-| Shortcut | Action |
-| --- | --- |
-| V / G / B / E | Select / Grid / Brush / Erase |
-| O / L / K | Image object / Light / Layers |
-| P / H | Polygon / Pan |
-| Enter (Polygon tool) | Finish polygon |
-| Two-finger drag / pinch | Touch pan / zoom |
-| Middle mouse drag / scroll | Pan / zoom |
-| Shift-drag | Add to selection |
-| Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z | Undo / redo |
-| Ctrl/Cmd+C / Ctrl/Cmd+V | Copy / paste |
-| Ctrl/Cmd+G / Ctrl/Cmd+Shift+G | Group / ungroup |
-| Delete / Escape | Delete / deselect |
-| Alt+scroll or [ / ] | Change brush size |
-
-## Main tools
-
-### Cells, tilesets, and brushes
-
-Grid cells can use solid colors or uploaded textures. Tilesets can randomly choose from several textures and apply rotation, mirroring, hue, saturation, brightness, and contrast variation.
-
-The Brush tool supports spacing, spread, size/rotation randomness, mirroring, and SVG tinting. Variations are stored with the created cells and brush stamps, so redraws, undo/redo, saves, and exports stay stable.
-
-### Objects, groups, and layers
-
-Uploaded PNG/JPEG/SVG objects can be moved, resized, rotated, mirrored, copied, grouped, and moved between layers. Groups rotate around a shared pivot and survive save/load and undo.
-
-Layers can be reordered, hidden, renamed, or deleted. Lights and border settings are layer-aware as well.
-
-### Lighting and borders
-
-Lights have color, intensity, range, shadow occlusion, and up to three approximate rebounds. Baked lighting can cache the result for faster navigation and export.
-
-Procedural borders follow the exterior of connected grid regions. Built-in styles include pencil hatching, dots, and rocks. Custom border artwork can be supplied as matching edge and corner images.
-
-### Saving and export
-
-Projects autosave locally in IndexedDB, with older localStorage saves migrated when possible.
-
-- **JSON** keeps the editable project.
-- **PNG** exports a single image.
-- **PDF** tiles the map over pages and supports paper size, orientation, DPI, padding, color mode, and physical cell size.
-
-## Polygons, touch controls, and export framing
-
-Choose **Polygon** (`P`), then tap or click to place vertices. The preview connects them in order. Tap the first vertex, press Enter, or use **Finish polygon** to close the shape. **Remove last vertex** corrects a point; Cancel or Escape discards the draft. New polygons belong to the active visible layer.
-
-Set the fill, outline, and opacity in the Polygon inspector. Upload a separate polygon texture, choose **Tile** with a scale or **Fit entire polygon**, and adjust texture rotation and opacity. Select an existing polygon to change its material, size, rotation, mirrors, or layer. Polygon outlines participate in local-light occlusion and layer shadows, and polygon surfaces receive layer lighting. Polygons stay editable through JSON, autosave, copy/paste, grouping, and undo/redo.
-
-On phones and tablets, use one finger for the chosen tool and two fingers to pan and pinch to zoom. The **Pan** tool (`H`) also moves the map with one finger or a mouse drag. A pinch cancels any uncommitted stroke. The tool rail scrolls horizontally; tap the inspector title or **Map** to expand or collapse settings. Finish/Cancel controls remain available above the canvas while drawing a polygon.
-
-In **Map → Export area**, use **Edit export area** to overlay the output frame. Drag inside the frame to move it, drag a corner to resize it, or enter its position and dimensions in cells. **Finish editing area** returns to drawing. Dashed page guides follow the paper size, orientation, physical cell size, DPI, and sheet margins under **PDF page guides**, which share the PDF dialog’s settings. The chosen frame applies to both PNG and PDF exports and is saved in the project. **Fit area to artwork** restores automatic bounds, including padding and shadows; padding applies only to automatic bounds.
-
-## Printing on sheets with margins
-
-In the PDF dialog, set **Margins on every sheet (mm)** for the top, right, bottom, and left edges. Defaults are **5 mm on each edge**; adjust them to your printer’s printable area, or use 0 for borderless output. The same settings are available in **Map → Export area → PDF page guides** and are saved with the project.
-
-These margins apply to **each sheet**, separately from map-wide **Padding (cells)**. Increasing sheet margins reduces the area of map printed on each page and can add pages. It never shrinks the map: each image pixel retains its DPI-based physical size, and the chosen cell size stays the same. The preview and PDF dialog show the updated page split. All tiles together include the complete export area, including partial tiles on the last row and column.
-
-### Which margins should I use?
-
-| Setting | What it changes |
-| --- | --- |
-| **Padding (cells)** | Space around the outside of the complete map. |
-| **Margins on every sheet (mm)** | The printable area used when splitting the map into PDF pages. Larger margins move the page breaks and can add pages, while preserving cell size. |
-| **Print-app margins / Fit to page** | How the already-created PDF pages are placed or scaled on paper. These do not update the page breaks saved in the PDF; an extra adjustment may shrink the map or clip artwork. |
-
-For example, an A4 portrait sheet is 210 × 297 mm. With 5 mm margins on every edge, the exporter splits the map into tiles fitting within 200 × 287 mm. Changing the margins here recalculates those tiles and updates the dashed preview guides. Changing settings in a print app afterward does not change the page split in the saved PDF.
-
-Match the exporter’s sheet margins to your printer’s printable area; the editor does not detect this automatically. Then print at **Actual size / 100%**, with **Fit to page** or **Shrink to fit** disabled, and avoid adding another margin/scaling adjustment. Trim the white sheet margins and join the map edges in row order. PNG and VTT exports are unaffected by sheet margins.
-
-## Virtual tabletop exports
-
-Open **Map → Export for VTT**. Choose a platform and format, then download the map. These exports use the current export area and color mode; the editable map stays unchanged.
-
-| Target | Output | Import workflow |
-| --- | --- | --- |
-| D&D Beyond Maps | JPG, PNG, or WebP; preset 100 pixels/cell | Upload a custom map image, then calibrate its grid using the cell dimensions shown in the dialog and filename. |
-| Roll20 | Universal VTT (`.uvtt`); preset 70 pixels/cell | Open **Create Page → Upload Background**, then select the file. Roll20 reads the background, grid scale, blocking walls, and light sources. Dynamic Lighting use depends on your subscription. |
-| Roll20 image / other VTT | JPG, PNG, WebP, or Universal VTT | Upload the image on the map/background layer and set its size in cells, or use your VTT’s Universal VTT importer. |
-
-**Include grid lines** defaults off so the VTT can draw its own grid. **Align frame to whole cells** expands the frame outward without moving artwork or changing the saved export area. UVTT always uses whole-cell alignment. Image exports can retain an exact fractional frame; the dialog reports the pixel offset needed for grid alignment. Resolution remains fixed at your chosen pixels/cell, even when image quality is reduced.
-
-**Include editor lighting in image** preserves the map’s lighting in a static image. For UVTT, leave it off to let the VTT light the map dynamically. When it is on, light sources are omitted from the UVTT data to avoid lighting the same image twice. The **File budget** is configurable to match your account’s upload allowance; 0 disables the budget. JPG/WebP quality is reduced as needed. If a file still exceeds the budget, export stops with guidance instead of silently resizing the grid.
-
-UVTT blocking walls follow visible solid cells, polygons, and image-object rectangles with **Blocks light** enabled. Adjacent solid grid cells share an exterior outline; internal seams are omitted. Disable blocking on floors or disable wall export if the map should stay open. Walls are clipped to the export area, hidden layers are excluded, and light sources inside the frame retain their position, color, range, and intensity. Layers are flattened into one scene; UVTT cannot reproduce the editor’s per-layer lighting or sampled rebounds. There are no inferred doors or windows. Review imported walls and lighting in your VTT.
-
-D&D Beyond support here is an image import workflow, with walls and lighting configured in Maps separately. These are downloadable files, not a direct account integration. The downloads are validated by browser tests; imports inside signed-in third-party VTT sessions have not been tested automatically.
-
-Platform references: [D&D Beyond supported image formats](https://dndbeyond-support.wizards.com/hc/en-us/articles/46363725057556-What-file-formats-work-for-uploading-images-and-videos), [Roll20 native UVTT upload](https://blog.roll20.net/posts/page-menu-updates/), [Roll20’s UVTT importer source](https://github.com/Roll20/roll20-api-scripts/tree/master/UniversalVTTImporter).
-
-## Testing
-
-Browser integration tests use Python and Playwright:
-
-```bash
-python3 -m venv .venv
-.venv/bin/pip install -r tests/requirements.txt
-.venv/bin/playwright install chromium
-.venv/bin/python tests/browser_checks.py
-```
-
-The suite runs the editor in Chromium and checks core interactions, polygon materials and lighting, touch drawing and navigation, VTT encoders/walls/lights, export framing, physical PDF scale and pixel-perfect page reassembly, groups, layers, borders, and local save/reload behavior.
-
-## Project structure
-
-```text
-js/
-  canvas.js        main editor state and interaction logic
-  polygons.js      polygon geometry, materials and shadows
-  pdf-layout.js    physical page margins and lossless PDF tiling
-  editor-controls.js touch navigation and export framing
-  vtt-export.js    VTT images, UVTT geometry and serialization
-  vtt-ui.js        platform presets and VTT export dialog
-  scene.js         shared rendering and lighting
-  geometry.js      hit testing, visibility and contour geometry
-  borders.js       procedural border generation
-  hud.js           interface controls
-  storage.js       autosave and migration
-  project-store.js IndexedDB project storage
-
-css/               interface styles
-tests/             Playwright browser integration checks
-docs/              screenshots, examples and additional documentation
-```
-
-[RELEASE_NOTES.md](RELEASE_NOTES.md) describes the current v1.6.0 release in more detail.
-
-## Roadmap
-
-Planned ideas include:
-
-- Layer locking.
-- Alignment and snapping tools.
-- More built-in textures and symbols.
-- Brush path connections and measurement tools.
-- Further performance work for very large maps.
+Open **http://localhost:8000**. PDF export loads jsPDF from a CDN; the interface font comes from Google Fonts and falls back to a system font if unavailable.
 
 ## Contributing
 
-Bug reports, feature ideas, documentation fixes, and code contributions are welcome. See [CONTRIBUTING.MD](CONTRIBUTING.MD).
+See [CONTRIBUTING.MD](CONTRIBUTING.MD) for local setup, browser tests, and pull requests. Bugs and feature requests go in [Issues](https://github.com/Rokoel/Open-Map-Creator/issues).
 
-## License
-
-Open Map Creator is released under the [MIT license](LICENCE).
+Open Map Creator uses the [MIT license](LICENCE). Third-party libraries and assets are listed in [CREDITS.md](CREDITS.md).

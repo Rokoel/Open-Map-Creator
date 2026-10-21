@@ -1,12 +1,10 @@
-# Contributing to Open Map Creator
+# Contributing
 
-Contributions are welcome, including bug reports, feature ideas, documentation fixes, example maps, and code changes.
+For bugs, [open an issue](https://github.com/Rokoel/Open-Map-Creator/issues) with steps to reproduce, what you expected, what happened, and your browser. A screenshot, console error, or small JSON project can help. For feature requests, explain what you want to do with the map editor.
 
-Please follow the [Code of Conduct](CODE_OF_CONDUCT.MD).
+## Run locally
 
-## Development setup
-
-Open Map Creator is a static browser application built with JavaScript, HTML, CSS, and Canvas 2D.
+The app uses plain JavaScript, HTML, CSS, and Canvas 2D. There is no build step.
 
 ```bash
 git clone https://github.com/Rokoel/Open-Map-Creator.git
@@ -14,26 +12,17 @@ cd Open-Map-Creator
 python3 -m http.server 8000
 ```
 
-Open **http://localhost:8000**.
+Open **http://localhost:8000**. Serve the files over HTTP so the JavaScript modules load. PDF export needs the jsPDF script loaded from a CDN.
 
-There is no build step.
+## Making changes
 
-## Code structure
+Keep pull requests focused and describe the problem, the change, and how you checked it. Follow the surrounding code style. Add a regression check for a bug fix when practical.
 
-The main files are:
+Most editor state and mouse interactions live in `js/canvas.js`. Interface controls are in `js/hud.js` and `js/main.js`; rendering and lighting are in `js/scene.js`. PDF layout is shared by the exporter and page guides in `js/pdf-layout.js`. Saving is handled by `js/storage.js` and `js/project-store.js`.
 
-- `js/canvas.js` — editor state and interactions.
-- `js/scene.js` — shared rendering and lighting.
-- `js/geometry.js` — geometry, hit testing, visibility, and contours.
-- `js/borders.js` — procedural border generation.
-- `js/hud.js` — interface controls.
-- `js/storage.js` and `js/project-store.js` — local persistence.
+## Tests
 
-Try to keep new logic in the most relevant module rather than expanding `canvas.js` unless it directly belongs to editor state or interaction handling.
-
-## Testing
-
-Set up the browser integration tests with:
+Set up Python and Playwright, then run the browser suite:
 
 ```bash
 python3 -m venv .venv
@@ -42,34 +31,6 @@ python3 -m venv .venv
 .venv/bin/python tests/browser_checks.py
 ```
 
-For code changes, run the integration suite and manually test the behavior you changed when practical.
+The tests start their own local server and run in headless Chromium. For code changes, run the suite and try the affected controls in the browser. Documentation-only changes do not need a browser test run.
 
-## Pull requests
-
-For non-trivial changes:
-
-1. Create a branch.
-2. Make the change and keep it focused.
-3. Add or update tests when the behavior can be covered reliably.
-4. Run the existing test suite.
-5. Open a pull request describing what changed and why.
-
-Please follow the existing code style. Comments are most useful around non-obvious geometry, rendering, persistence, and browser-behavior decisions.
-
-## Bug reports
-
-A useful bug report includes:
-
-- steps to reproduce;
-- expected behavior;
-- actual behavior;
-- browser and operating system;
-- screenshots or console errors when relevant.
-
-## Feature ideas
-
-Feature requests are welcome. Describe the use case first, then the proposed behavior. Mockups or example maps are useful for UI and rendering changes.
-
-## License
-
-By contributing, you agree that your contribution is licensed under the same [MIT license](LICENCE) as the project.
+Contributions use the project's [MIT license](LICENCE). Keep third-party notices in [CREDITS.md](CREDITS.md) up to date when adding or changing dependencies.

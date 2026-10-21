@@ -19,7 +19,7 @@ const constants = {
   mapBackupFileName: "ttrpg_map_export",
   mapPDFFileName: "ttrpg_map_print",
   localStorageKey: "ttrpgMapCreatorData", // Key for local storage
-  saveFileVersion: "1.6.0", // Version for save file format
+  saveFileVersion: "2.0.0", // Version for save file format
 
   // PDF Export Page Sizes (in mm)
   pageSizesMM: {

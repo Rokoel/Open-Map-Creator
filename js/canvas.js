@@ -1,3 +1,5 @@
+import { showAlert, askNumber } from "./dialogs.js";
+import { defaultExportSettings } from "./pdf-layout.js";
 import { polygonPoints, polygonDefaults, drawPolygon, finishPolygon, drawPolygonDraft } from "./polygons.js";
 import { setupEditorControls, drawExportOverlay } from "./editor-controls.js";
 import { contains, localPoint, corners, gridEdges } from "./geometry.js";
@@ -34,6 +36,7 @@ export class CanvasManager {
     this.currentCellSize = constants.baseCellSize;
 
     // Flags
+    this.isErasing = false;
     this.isPanning = false;
     this.isDrawing = false;
     this.isSelecting = false;
@@ -77,7 +80,7 @@ export class CanvasManager {
     this.lightSettings = { ...lightDefaults };
     this.ambientLight = { ...ambientDefaults };
     this.bakedLighting = null;
-    this.exportSettings = { colorMode: "color", padding: 1 };
+    this.exportSettings = defaultExportSettings();
 
     this.freeDrawSettings = {
       ...brushDefaults,
@@ -99,6 +102,7 @@ export class CanvasManager {
     };
     this.gridImageList = [];
 
+    this.objectImageList = [];
     this.customObjectImage = null;
     this.customObjectImageSrc = null;
 
@@ -250,6 +254,8 @@ export class CanvasManager {
    * @param {Object} state - The state object to load.
    */
   loadStateData(state) {
+    this.isErasing = false;
+    this.eraseLastPoint = null;
     this.isDrawing = this.isSelecting = this.isMovingSelection = false;
     this.transformDrag = this.selectionStart = this.selectionEnd = null;
     this.selectionBase = null;
@@ -434,6 +440,18 @@ export class CanvasManager {
       }
     }
 
+    const assets = state.settings?.objectImageList || [];
+    this.objectImageList = [];
+    for (const asset of assets) {
+      if (asset && typeof asset.src === "string" && asset.src && !this.objectImageList.some(item => item.src === asset.src))
+        this.objectImageList.push({ src:asset.src, name:asset.name || `Object ${this.objectImageList.length + 1}` });
+    }
+    for (const src of [this.customObjectImageSrc, ...[...this.customObjects.values()]
+      .filter(obj => obj.type !== "polygon" && obj.type !== "light").map(obj => obj.imageSrc)]) {
+      if (src && !this.objectImageList.some(item => item.src === src))
+        this.objectImageList.push({ src, name:`Object ${this.objectImageList.length + 1}` });
+    }
+
     for (const layer of this.layers) {
       layer.gridBorderOptions = {
         ...borderDefaults,
@@ -459,9 +477,9 @@ export class CanvasManager {
     }
     this.ambientLight = { ...ambientDefaults, ...state.settings?.ambientLight };
     this.exportSettings = {
-      colorMode: "color",
-      padding: 1,
+      ...defaultExportSettings(),
       ...state.settings?.exportSettings,
+      sheetMargins: { ...defaultExportSettings().sheetMargins, ...state.settings?.exportSettings?.sheetMargins },
     };
     this.polygonSettings = { ...polygonDefaults, ...state.settings?.polygonSettings };
     if (this.polygonSettings.imageSrc) {
@@ -715,6 +733,7 @@ export class CanvasManager {
     });
     document.addEventListener("keydown", (event) => {
       if (
+        document.getElementById("appDialog").open || this.isErasing ||
         event.target.closest('input,textarea,select,[contenteditable="true"]')
       )
         return;
@@ -740,18 +759,29 @@ export class CanvasManager {
       }
     });
     window.addEventListener("blur", () => {
+      if (this.isErasing) this.finishErasing();
       this.brushSizeModifier = false;
       this.render();
     });
 
     // Combined mouse events for drawing, panning, and selection.
-    // TODO: add right-click functionality
     this.canvas.addEventListener("mousedown", (event) => {
       const rect = this.canvas.getBoundingClientRect();
       const startX = event.clientX - rect.left;
       const startY = event.clientY - rect.top;
       const worldPos = this.screenToWorld(startX, startY);
 
+      if (this.isErasing) return;
+      if (event.button === 2) {
+        event.preventDefault();
+        if (this.isDrawing || this.isSelecting || this.isMovingSelection || this.transformDrag || this.isPanning) return;
+        this.isErasing = true;
+        this.eraseLastPoint = worldPos;
+        this.eraseAt(worldPos);
+        this.canvas.style.cursor = "cell";
+        this.render();
+        return;
+      }
       // Middle mouse button for panning
       if (event.button === 1 || (event.button === 0 && this.activeInstrument === "pan")) {
         // Middle mouse button
@@ -764,7 +794,6 @@ export class CanvasManager {
 
       // Left mouse button for drawing/selecting
       else if (event.button === 0) {
-        if (this.activeInstrument === "layers") return;
         // Left mouse button
         if (this.activeInstrument === "select") {
           if (event.shiftKey) {
@@ -843,6 +872,16 @@ export class CanvasManager {
       )
         this.render();
 
+      if (this.isErasing) {
+        const from = this.eraseLastPoint, distance = Math.hypot(worldPos.x-from.x, worldPos.y-from.y);
+        const steps = Math.max(1, Math.ceil(distance / Math.max(1, this.currentCellSize / 4)));
+        for (let i=1; i<=steps; i++) this.eraseAt({
+          x:from.x+(worldPos.x-from.x)*i/steps, y:from.y+(worldPos.y-from.y)*i/steps,
+        });
+        this.eraseLastPoint = worldPos;
+        this.render();
+        return;
+      }
       if (this.transformDrag) {
         this.updateTransform(worldPos, event.shiftKey);
         this.render();
@@ -891,6 +930,10 @@ export class CanvasManager {
 
     // Use *window* mouseup to catch events outside canvas
     window.addEventListener("mouseup", (event) => {
+      if (event.button === 2 && this.isErasing) {
+        this.finishErasing();
+        return;
+      }
       if (event.button === 0 && this.transformDrag) {
         this.transformDrag = null;
         this.saveHistory();
@@ -930,15 +973,16 @@ export class CanvasManager {
       }
     });
 
-    this.canvas.addEventListener("dblclick", (event) => {
-      if (this.activeInstrument !== "select" || this.selectionGroup()) return;
+    this.canvas.addEventListener("dblclick", async (event) => {
+      if (event.button !== 0 || this.activeInstrument !== "select") return;
       const rect = this.canvas.getBoundingClientRect(),
         p = this.screenToWorld(
           event.clientX - rect.left,
           event.clientY - rect.top,
         );
-      for (const id of this.selectedObjects.custom) {
-        const obj = this.customObjects.get(id);
+      const group = this.selectionGroup();
+      const objects = group ? [group] : this.selectedObjects.custom.map(id => this.customObjects.get(id));
+      for (const obj of objects) {
         if (!obj || obj.type === "light" || !this.editable(obj)) continue;
         const q = localPoint(obj, p),
           tolerance = 10 / this.scale;
@@ -950,7 +994,7 @@ export class CanvasManager {
           Math.abs(q.y) <= obj.height / 2 + tolerance;
         if (!horizontal && !vertical) continue;
         const dimension = horizontal ? "width" : "height";
-        const value = prompt(
+        const value = await askNumber(
           `Object ${dimension} (cells)`,
           (obj[dimension] / this.currentCellSize).toFixed(2),
         );
@@ -959,22 +1003,59 @@ export class CanvasManager {
           Number.isFinite(Number(value)) &&
           Number(value) > 0
         ) {
-          this.setObjectDimension(
-            obj,
-            dimension,
-            Number(value) * this.currentCellSize,
-          );
+          if (obj.type === "group") this.setGroupDimension(dimension, value * this.currentCellSize);
+          else this.setObjectDimension(obj, dimension, value * this.currentCellSize);
           this.saveHistory();
           this.render();
+          window.hudInstance?.loadInstrumentSettings("select");
         }
         break;
       }
     });
     // Prevent context menu on canvas
-    // TODO: add right-click context menu
     this.canvas.addEventListener("contextmenu", (event) =>
       event.preventDefault(),
     );
+  }
+
+  selectObjectImage(src) {
+    this.customObjectImageSrc = src;
+    this.customObjectImage = src ? this.getTileImage(src) : null;
+  }
+
+  addObjectImage(image, name) {
+    const src = image.src;
+    if (!this.objectImageList.some(asset => asset.src === src))
+      this.objectImageList.push({ src, name:name || `Object ${this.objectImageList.length + 1}` });
+    this.tileImages ||= new Map();
+    this.tileImages.set(src, image);
+    this.selectObjectImage(src);
+  }
+
+  eraseAt(p) {
+    const layer = this.layers[this.activeLayerIndex];
+    if (!layer?.visible) return;
+    layer.objects.delete(this._cellId(Math.floor(p.x/this.currentCellSize), Math.floor(p.y/this.currentCellSize)));
+    for (const [id, obj] of this.freeDrawObjects) {
+      if (!this.editable(obj)) continue;
+      const hit = obj.image
+        ? contains({ ...obj, width:obj.size, height:obj.size }, p)
+        : Math.hypot(obj.x-p.x, obj.y-p.y) <= obj.size/2;
+      if (hit) this.freeDrawObjects.delete(id);
+    }
+    for (const [id, obj] of this.customObjects)
+      if (this.editable(obj) && contains(obj,p)) this.customObjects.delete(id);
+    for (const [kind, objects] of [["grid",layer.objects],["free",this.freeDrawObjects],["custom",this.customObjects]])
+      this.selectedObjects[kind] = this.selectedObjects[kind].filter(id => objects.has(id));
+  }
+
+  finishErasing() {
+    this.isErasing = false;
+    this.eraseLastPoint = null;
+    this.canvas.style.cursor = this.activeInstrument === "select" || this.activeInstrument === "pan" ? "default" : "crosshair";
+    this.saveHistory();
+    this.render();
+    window.hudInstance?.refresh();
   }
 
   /**
@@ -990,13 +1071,11 @@ export class CanvasManager {
    * Instruments:
    * - "gridDraw": Draws or updates a grid cell on the active layer.
    * - "freeDraw": Draws freehand objects based on user input.
-   * - "erase": Erases grid cells, free draw objects, or custom objects based on proximity or bounding box.
    * - "addObject": Adds a custom object (e.g., image) to the canvas at the specified position.
    *
    * Notes:
    * - For "gridDraw", the method checks if the cell data has changed before updating.
    * - For "freeDraw", the method respects a minimum distance (period) between points.
-   * - For "erase", the method supports erasing grid cells, free draw objects, and custom objects.
    * - For "addObject", the method requires a selected image to place on the canvas.
    */
   handleDrawing(worldPos, event) {
@@ -1110,36 +1189,6 @@ export class CanvasManager {
         this.render();
         break;
 
-      case "erase":
-        // Erase grid cell on active layer
-        const gridCellId = this._cellId(cellX, cellY);
-        if (activeLayerObjects?.has(gridCellId)) {
-          activeLayerObjects.delete(gridCellId);
-        }
-
-        // Erase free draw objects (check proximity)
-        const eraseRadiusFreeWorld = this.currentCellSize / 2;
-        for (let [fId, fObj] of this.freeDrawObjects) {
-          if (!this.editable(fObj)) continue;
-          const dxFree = fObj.x - worldPos.x;
-          const dyFree = fObj.y - worldPos.y;
-          // Check distance against object size or a fixed radius
-          if (
-            Math.sqrt(dxFree * dxFree + dyFree * dyFree) <
-            (fObj.size / 2 || eraseRadiusFreeWorld)
-          ) {
-            this.freeDrawObjects.delete(fId);
-          }
-        }
-
-        // Erase custom objects (check bounding box)
-        for (let [cId, cObj] of this.customObjects) {
-          if (this.editable(cObj) && contains(cObj, worldPos))
-            this.customObjects.delete(cId);
-        }
-        this.render();
-        break;
-
       case "polygon": {
         if (event.type !== "mousedown") break;
         const first = this.polygonDraft[0];
@@ -1171,7 +1220,7 @@ export class CanvasManager {
       }
       case "addObject":
         if (event.type !== "mousedown") break;
-        if (this.customObjectImage) {
+        if (this.customObjectImage?.naturalWidth > 0) {
           const objId =
             Date.now().toString() + Math.random().toString(36).substring(2);
           // Place center at mouse position
@@ -1450,16 +1499,22 @@ export class CanvasManager {
     });
   }
 
-  /**
-   * Calculates the center point of the currently selected objects on the canvas.
-   *
-   * The method computes the average position of all selected objects, including
-   * grid-based objects, free-draw objects, and custom objects. If no objects are
-   * selected, it returns `null`.
-   *
-   * @returns {{x: number, y: number} | null} The center point of the selection as an object
-   * with `x` and `y` coordinates, or `null` if no objects are selected.
-   */
+  applyGroupScale(frame, members, ratio, center = frame) {
+    for (const { obj, original } of members) {
+      obj.x = center.x + (original.x-frame.x)*ratio;
+      obj.y = center.y + (original.y-frame.y)*ratio;
+      for (const key of ["width", "height", "size"])
+        if (Number.isFinite(original[key])) obj[key] = original[key]*ratio;
+      if (obj.type === "light") obj.radius = original.radius*ratio;
+    }
+  }
+
+  setGroupDimension(dimension, value) {
+    const frame = this.selectionGroup();
+    if (!frame || !Number.isFinite(value) || value <= 0) return;
+    this.applyGroupScale(frame, frame.members.map(m => ({ obj:m.obj, original:{ ...m.obj } })), value/frame[dimension]);
+  }
+
   selectedMembers() {
     return ["free", "custom"].flatMap((kind) => {
       const objects =
@@ -1578,6 +1633,16 @@ export class CanvasManager {
     }
   }
 
+  /**
+   * Calculates the center point of the currently selected objects on the canvas.
+   *
+   * The method computes the average position of all selected objects, including
+   * grid-based objects, free-draw objects, and custom objects. If no objects are
+   * selected, it returns `null`.
+   *
+   * @returns {{x: number, y: number} | null} The center point of the selection as an object
+   * with `x` and `y` coordinates, or `null` if no objects are selected.
+   */
   getSelectionCenter() {
     let count = 0; // Total number of selected objects
     let sumX = 0; // Total x-coordinate of selected objects
@@ -2621,6 +2686,7 @@ export class CanvasManager {
             null,
         },
         customObjectImageSrc: this.customObjectImageSrc,
+        objectImageList: this.objectImageList.map(asset => ({ ...asset })),
       },
     };
     return state;
@@ -2720,7 +2786,7 @@ export class CanvasManager {
       this.render();
       this.saveHistory(); // Removing a layer is a state change
     } else {
-      alert("Cannot remove the last layer.");
+      showAlert("Cannot remove the last layer.");
     }
   }
 
@@ -2732,7 +2798,6 @@ export class CanvasManager {
    * - 'gridDraw': Sets the cursor to a crosshair.
    * - 'freeDraw': Sets the cursor to a crosshair.
    * - 'addObject': Sets the cursor to a crosshair.
-   * - 'erase': Sets the cursor to a cell.
    * - 'select': Sets the cursor to default.
    * - Any other value defaults the cursor to default.
    */
@@ -2770,19 +2835,16 @@ export class CanvasManager {
         kind: hy === -2 ? "rotate" : "resize",
       });
     }
-    return obj.type === "group"
-      ? points.filter((p) => p.kind === "rotate")
-      : points;
+    return points;
   }
 
   hitHandle(p) {
     const tolerance = (matchMedia("(pointer: coarse)").matches ? 22 : 9) / this.scale;
     const group = this.selectionGroup();
     if (group) {
-      const h = this.handlePoints(group)[0];
-      return Math.hypot(p.x - h.x, p.y - h.y) < tolerance
-        ? { ...h, obj: group }
-        : null;
+      for (const h of this.handlePoints(group))
+        if (Math.hypot(p.x-h.x, p.y-h.y) < tolerance) return { ...h, obj:group };
+      return null;
     }
     for (const id of this.selectedObjects.custom) {
       const obj = this.customObjects.get(id);
@@ -2810,7 +2872,7 @@ export class CanvasManager {
       };
       ctx.beginPath();
       ctx.moveTo(top.x, top.y);
-      ctx.lineTo(points[0].x, points[0].y);
+      ctx.lineTo(points[8].x, points[8].y);
       ctx.stroke();
       ctx.beginPath();
       ctx.moveTo(obj.x - r * 2, obj.y);
@@ -2856,7 +2918,7 @@ export class CanvasManager {
 
   updateTransform(p, keepAspect) {
     const { obj, original: o, hx, hy, kind } = this.transformDrag;
-    if (obj.type === "group") {
+    if (obj.type === "group" && kind === "rotate") {
       let delta =
         Math.atan2(p.y - o.y, p.x - o.x) - this.transformDrag.startAngle;
       delta = Math.atan2(Math.sin(delta), Math.cos(delta));
@@ -2877,7 +2939,7 @@ export class CanvasManager {
       min = 2 / this.scale;
     let width = hx ? Math.max(min, hx * q.x + o.width / 2) : o.width;
     let height = hy ? Math.max(min, hy * q.y + o.height / 2) : o.height;
-    if (keepAspect || o.lockAspectRatio) {
+    if (keepAspect || o.lockAspectRatio || obj.type === "group") {
       const sx = width / o.width,
         sy = height / o.height;
       const ratio = !hx
@@ -2900,6 +2962,7 @@ export class CanvasManager {
       x: o.x + dx * c - dy * s,
       y: o.y + dx * s + dy * c,
     });
+    if (obj.type === "group") this.applyGroupScale(o, this.transformDrag.members, width/o.width, obj);
   }
 
   setActiveInstrument(instrument) {
@@ -2916,9 +2979,6 @@ export class CanvasManager {
       case "polygon":
       case "addObject":
         this.canvas.style.cursor = "crosshair";
-        break;
-      case "erase":
-        this.canvas.style.cursor = "cell";
         break;
       case "select":
         this.canvas.style.cursor = "default";

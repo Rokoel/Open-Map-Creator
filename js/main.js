@@ -1,4 +1,5 @@
-import { pdfLayout, sheetMarginDefaults } from "./pdf-layout.js";
+import { askConfirm } from "./dialogs.js";
+import { defaultExportSettings, pdfLayout, sheetMarginDefaults } from "./pdf-layout.js";
 import { setupVTTExport } from "./vtt-ui.js";
 import { polygonDefaults } from "./polygons.js";
 import { CanvasManager } from "./canvas.js";
@@ -57,22 +58,19 @@ document.addEventListener("DOMContentLoaded", async () => {
   };
   document.getElementById("pdfForm").addEventListener("input", updatePDFSummary);
   for (const [side,id] of Object.entries(marginIds)) {
-    document.getElementById(id).addEventListener("change", event => {
-      if (!event.target.checkValidity()) return;
+    const input = document.getElementById(id);
+    input.addEventListener("input", event => {
+      if (!event.target.value || !event.target.checkValidity()) return;
       canvasManager.exportSettings.sheetMargins = { ...sheetMarginDefaults, ...canvasManager.exportSettings.sheetMargins, [side]: Number(event.target.value) };
-      canvasManager.saveHistory(); canvasManager.render(); updatePDFSummary();
+      hud.updateExportControls(true); canvasManager.render(); updatePDFSummary();
+    });
+    input.addEventListener("change", () => {
+      hud.updateExportControls(); canvasManager.saveHistory();
     });
   }
   for (const id of ["exportPDF", "exportPDFPrimary"])
     document.getElementById(id).addEventListener("click", () => {
-      for (const [id,key,fallback] of [["pdfOrientation","orientation","landscape"],["pdfPaper","paper","A4"],["pdfDpi","dpi",150],["pdfCellSize","cellSize",2.5]])
-        document.getElementById(id).value = canvasManager.exportSettings[key] ?? fallback;
-      document.getElementById("pdfColorMode").value =
-        canvasManager.exportSettings.colorMode;
-      document.getElementById("pdfPadding").value =
-        canvasManager.exportSettings.padding;
-      for (const [side,id] of Object.entries(marginIds))
-        document.getElementById(id).value = canvasManager.exportSettings.sheetMargins?.[side] ?? sheetMarginDefaults[side];
+      hud.updateExportControls();
       updatePDFSummary();
       document.getElementById("pdfDialog").showModal();
     });
@@ -83,11 +81,14 @@ document.addEventListener("DOMContentLoaded", async () => {
       document.getElementById("pdfDialog").close(),
     );
   for (const [id,key] of [["pdfOrientation","orientation"],["pdfPaper","paper"],["pdfDpi","dpi"],["pdfCellSize","cellSize"],["pdfPadding","padding"],["pdfColorMode","colorMode"]]) {
-    document.getElementById(id).addEventListener("change", e => {
-      if (!e.target.checkValidity()) return;
+    const input = document.getElementById(id);
+    input.addEventListener("input", e => {
+      if (!e.target.value || !e.target.checkValidity()) return;
       canvasManager.exportSettings[key] = ["dpi","cellSize","padding"].includes(key) ? Number(e.target.value) : e.target.value;
-      canvasManager.saveHistory(); canvasManager.render();
-      hud.updateAppearanceControls(); updatePDFSummary();
+      canvasManager.render(); hud.updateExportControls(true); updatePDFSummary();
+    });
+    input.addEventListener("change", () => {
+      hud.updateExportControls(); canvasManager.saveHistory();
     });
   }
   document.getElementById("pdfForm").addEventListener("submit", (event) => {
@@ -96,8 +97,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     storageManager.exportPDF(pdfOptions());
   });
 
-  document.getElementById("clearCanvas").addEventListener("click", () => {
-    if (confirm("Clear artwork from all layers? You can undo this action.")) {
+  document.getElementById("clearCanvas").addEventListener("click", async () => {
+    if (await askConfirm("Clear artwork from all layers? You can undo this action.",
+      { title:"Clear artwork", acceptLabel:"Clear artwork", danger:true })) {
       canvasManager.clearCanvas();
       canvasManager.saveHistory();
     }
@@ -105,8 +107,9 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   document.getElementById("restart").addEventListener("click", async () => {
     if (
-      confirm(
-        "Restarting will completely clear all data (layers, objects, settings, and saved progress). Continue?",
+      await askConfirm(
+        "This will clear all layers, objects, settings, and saved progress.",
+        { title:"Reset everything", acceptLabel:"Reset everything", danger:true },
       )
     ) {
       // Clear Local Storage
@@ -143,7 +146,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       canvasManager.gridBorderOptions = { ...borderDefaults };
       canvasManager.lightSettings = { ...lightDefaults };
       canvasManager.ambientLight = { ...ambientDefaults };
-      canvasManager.exportSettings = { colorMode: "color", padding: 1 };
+      canvasManager.exportSettings = defaultExportSettings();
       canvasManager.polygonSettings = { ...polygonDefaults };
       canvasManager.polygonDraft = [];
       canvasManager.exportOverlay = false;
@@ -175,6 +178,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       };
 
       // Reset Add Object Tool Image
+      canvasManager.objectImageList = [];
       canvasManager.customObjectImage = null;
       canvasManager.customObjectImageSrc = null;
 
@@ -219,13 +223,31 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Keyboard Shortcuts
   document.addEventListener("keydown", (e) => {
-    if (e.isComposing) return;
+    if (canvasManager.isErasing || document.getElementById("appDialog").open || e.isComposing || e.target.isContentEditable) return;
     const editingText = e.target.closest(
       'textarea, [contenteditable="true"], input[type="text"], input:not([type])',
     );
     if (editingText) return;
     const historyKey = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z";
     if (!historyKey && e.target.closest("input, select")) return;
+
+    const direction = { ArrowLeft: [-1,0], ArrowRight: [1,0], ArrowUp: [0,-1], ArrowDown: [0,1] }[e.key];
+    if (direction && !e.ctrlKey && !e.metaKey && !e.altKey &&
+        canvasManager.activeInstrument === "select" && !canvasManager.exportOverlay &&
+        !canvasManager.isErasing && !canvasManager.isMovingSelection && !canvasManager.isSelecting && !canvasManager.transformDrag &&
+        !document.querySelector("dialog[open]") &&
+        canvasManager.layers[canvasManager.activeLayerIndex]?.visible !== false &&
+        Object.values(canvasManager.selectedObjects).some(ids => ids.length)) {
+      e.preventDefault();
+      const step = canvasManager.currentCellSize * (e.shiftKey ? 10 : 1);
+      canvasManager.gridMoveRemainder = { x:0, y:0 };
+      canvasManager.moveSelection(direction[0] * step, direction[1] * step);
+      canvasManager.saveHistory();
+      canvasManager.render();
+      hud.loadInstrumentSettings("select");
+      hud.updateExportFields();
+      return;
+    }
 
     if (
       (e.ctrlKey || e.metaKey) &&

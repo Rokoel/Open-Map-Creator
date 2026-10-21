@@ -12,11 +12,14 @@ def check_tileset_updates(page):
     assert not page.locator('#hud #instrumentSettings, #hud #layerControls, #hud #appearancePanel').count()
     page.locator('#mapToggle').click();assert page.locator('#mapContents').is_visible()
     page.locator('#mapToggle').click();assert not page.locator('#mapContents').is_visible()
+    page.evaluate("window.hudInstance.chooseTool('gridDraw')")
     page.locator('[data-instrument=layers]').click()
     assert page.locator('#toolHud #layerControls').is_visible()
     assert page.locator('#appearancePanel').is_visible()
     before=page.evaluate('cm.layers[0].objects.size')
-    page.mouse.click(600,400);assert page.evaluate('cm.layers[0].objects.size')==before
+    assert page.evaluate("cm.activeInstrument!=='layers'")
+    page.mouse.click(600,400);assert page.evaluate('cm.layers[0].objects.size')==before+1
+    page.evaluate('cm.undo()')
     rail=page.locator('#toolbar').bounding_box();left=page.locator('#toolHud').bounding_box()
     assert left['y']>=rail['y']+rail['height'] and left['x']<40,(rail,left)
     page.locator('[data-instrument=freeDraw]').click()

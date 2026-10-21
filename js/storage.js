@@ -1,3 +1,4 @@
+import { showAlert, askConfirm } from "./dialogs.js";
 import { pdfLayout, pdfTiles } from "./pdf-layout.js";
 import { ProjectStore, packProject, unpackProject } from "./project-store.js";
 import { constants } from "./constants.js";
@@ -38,7 +39,7 @@ export class StorageManager {
       console.log("Map exported successfully.");
     } catch (error) {
       console.error("Error exporting map:", error);
-      alert("Failed to export map data. See console for details.");
+      showAlert("Failed to export map data. See console for details.");
     }
   }
 
@@ -61,7 +62,7 @@ export class StorageManager {
       if (!file) return;
 
       const reader = new FileReader();
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         try {
           const data = JSON.parse(e.target.result);
           // Basic validation (optional but recommended)
@@ -75,18 +76,19 @@ export class StorageManager {
           }
 
           // Confirm overwrite
-          if (confirm("Importing will replace the current map. Continue?")) {
+          if (await askConfirm("Importing will replace the current map.",
+            { title:"Open map", acceptLabel:"Replace map", danger:true })) {
             this.canvasManager.loadMapData(data);
             console.log("Map imported successfully.");
           }
         } catch (err) {
           console.error("Error parsing or loading map data:", err);
-          alert(`Failed to import map: ${err.message}`);
+          showAlert(`Failed to import map: ${err.message}`);
         }
       };
       reader.onerror = (e) => {
         console.error("Error reading file:", e);
-        alert("Failed to read the selected file.");
+        showAlert("Failed to read the selected file.");
       };
       reader.readAsText(file);
     });
@@ -257,7 +259,7 @@ export class StorageManager {
       width = Math.ceil(bounds.width * cellPixels),
       height = Math.ceil(bounds.height * cellPixels);
     if (width * height > 64000000 || width > 16384 || height > 16384) {
-      alert(
+      showAlert(
         "This map is too large for a single PNG. Export it as tiled PDF or save JSON instead.",
       );
       return;
@@ -307,19 +309,19 @@ export class StorageManager {
     options = { ...this.canvasManager.exportSettings, ...options };
     const { jsPDF } = window.jspdf || {};
     if (!jsPDF) {
-      alert("Error: jsPDF library not loaded.");
+      showAlert("Error: jsPDF library not loaded.");
       return;
     }
 
     let layout;
     try { layout = pdfLayout(options); }
-    catch (error) { alert(error.message); return; }
+    catch (error) { showAlert(error.message); return; }
     const { exportScale } = layout;
 
     // Get map content bounds in logical units
     const bbox = this.canvasManager.getExportBounds(options);
     if (bbox.width <= 0 || bbox.height <= 0) {
-      alert("Map is empty. Nothing to export.");
+      showAlert("Map is empty. Nothing to export.");
       return;
     }
     const logicalWidth = bbox.width;
@@ -329,7 +331,7 @@ export class StorageManager {
     const exportWidthPx = Math.ceil(logicalWidth * exportScale);
     const exportHeightPx = Math.ceil(logicalHeight * exportScale);
     if (exportWidthPx <= 0 || exportHeightPx <= 0) {
-      alert(
+      showAlert(
         "Error: Calculated export dimensions are invalid. Check map content and export settings.",
       );
       return;
@@ -347,7 +349,7 @@ export class StorageManager {
       exportWidthPx > 16384 ||
       exportHeightPx > 16384
     ) {
-      alert(
+      showAlert(
         "The render is too large at these settings. Reduce DPI or physical cell size and try again.",
       );
       return;
@@ -359,7 +361,7 @@ export class StorageManager {
     offCanvas.height = exportHeightPx;
     const offCtx = offCanvas.getContext("2d");
     if (!offCtx) {
-      alert("Error: Could not create offscreen canvas context.");
+      showAlert("Error: Could not create offscreen canvas context.");
       return;
     }
 
@@ -407,7 +409,7 @@ export class StorageManager {
       }
     } catch (error) {
       console.error("Error rendering PDF pages", error);
-      alert("Could not render all PDF pages. Try a lower DPI or smaller export area.");
+      showAlert("Could not render all PDF pages. Try a lower DPI or smaller export area.");
       return; // Never download a PDF with missing map tiles.
     }
 
@@ -418,7 +420,7 @@ export class StorageManager {
       console.log("PDF saved successfully.");
     } catch (saveError) {
       console.error("Error saving PDF:", saveError);
-      alert("Failed to save the PDF file. See console for details.");
+      showAlert("Failed to save the PDF file. See console for details.");
     }
   }
 }

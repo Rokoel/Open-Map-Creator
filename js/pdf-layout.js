@@ -2,6 +2,11 @@ import { constants } from "./constants.js";
 
 export const sheetMarginDefaults = { top: 5, right: 5, bottom: 5, left: 5 };
 
+export function defaultExportSettings() {
+  return { colorMode: "color", padding: 1, orientation: "landscape", paper: "A4",
+    dpi: 300, cellSize: 2.5, sheetMargins: { ...sheetMarginDefaults } };
+}
+
 // Keep page guides, raster slicing, and PDF placement on one physical layout.
 // Whole-pixel tiles may leave less than one pixel of extra white paper at the
 // right/bottom edge. Every source pixel still prints at exactly 25.4 / DPI mm.
@@ -10,7 +15,7 @@ export function pdfLayout(settings = {}) {
   const orientation = settings.orientation === "portrait" ? "portrait" : "landscape";
   const widthMM = orientation === "landscape" ? paper.height : paper.width;
   const heightMM = orientation === "landscape" ? paper.width : paper.height;
-  const dpi = Math.max(36, Math.min(600, Number(settings.dpi) || 150));
+  const dpi = Math.max(36, Math.min(600, Number(settings.dpi) || 300));
   const cellSizeCM = Math.max(.1, Math.min(10, Number(settings.cellSize) || 2.5));
   const margins = { ...sheetMarginDefaults, ...settings.sheetMargins };
   for (const side of Object.keys(sheetMarginDefaults)) {

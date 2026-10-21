@@ -6,6 +6,9 @@ from pathlib import Path
 import threading
 from playwright.sync_api import sync_playwright
 from pdf_margin_checks import check_pdf_margins
+from keyboard_export_checks import check_keyboard_and_export_settings
+from dialog_checks import check_dialogs
+from object_workflow_checks import check_object_workflows
 from vtt_checks import check_vtt_exports
 from polygon_mobile_checks import check_polygons_and_export_area, check_mobile_controls
 from followup_checks import check_followups
@@ -30,9 +33,13 @@ def run():
         page = browser.new_page(viewport={'width': 1440, 'height': 1000})
         errors = []
         page.on('pageerror', lambda error: errors.append(str(error)))
+        page.on('dialog', lambda dialog: (errors.append('Unexpected browser dialog: '+dialog.message), dialog.dismiss()))
         page.goto(f'http://127.0.0.1:{server.server_port}')
         page.wait_for_function('!!window.hudInstance')
         page.evaluate('window.cm = window.hudInstance.canvasManager')
+        objects=check_object_workflows(page)
+        dialogs=check_dialogs(page)
+        keyboard_export=check_keyboard_and_export_settings(page)
         # Geometry: hidden internal grid seams, rotated rectangle hit testing, ray intersections.
         geometry = page.evaluate('''async () => {
           const g=await import('./js/geometry.js');
@@ -61,14 +68,15 @@ def run():
         page.mouse.move(handle['x'],handle['y']);page.mouse.down();page.mouse.move(obj['x']+100,obj['y'],steps=5);page.mouse.up()
         assert abs(page.evaluate('[...cm.customObjects.values()][0].rotation')-1.5707963268)<0.001
         side=page.evaluate('cm.handlePoints([...cm.customObjects.values()][0])[1]')
-        page.once('dialog',lambda dialog:dialog.accept('5'))
         page.mouse.dblclick(side['x'],side['y'])
-        assert page.evaluate('[...cm.customObjects.values()][0].width') == 160
+        page.locator('#appDialogInput').fill('5')
+        page.locator('#appDialogAccept').click()
+        page.wait_for_function('[...cm.customObjects.values()][0].width === 160')
         page.keyboard.press('Control+z')
         assert page.evaluate('[...cm.customObjects.values()][0].width') == 136
         # Layer ownership: hidden and foreign objects cannot be selected/erased; paste adopts active layer.
         page.evaluate('''() => {
-          cm.addLayer();cm.setActiveInstrument('erase');cm.handleDrawing({x:340,y:330},{type:'mousedown'});
+          cm.addLayer();cm.eraseAt({x:340,y:330});
           if(cm.customObjects.size!==1)throw Error('Eraser crossed layers');
           if(cm.getObjectAtWorldPos({x:340,y:330}))throw Error('Selection crossed layers');
           cm.setActiveLayer(0);cm.selectedObjects.custom=[...cm.customObjects.keys()];cm.copySelection();
@@ -209,7 +217,7 @@ def run():
         mobile=check_mobile_controls(browser, page.url)
         browser.close()
     server.shutdown()
-    print(json.dumps({'status':'PASS','margins':margins,'vtt':vtt,'polygons':polygons,'mobile':mobile,'followup':followup,'texture':texture,'studio':studio,'editor':editor,'layer_brush':layer_brush,'tileset':tileset,'groups':groups,'reliability':reliability,'autosave':autosave,'geometry':geometry,'lighting':lighting,'border_pixels':borders,'pdf_download_checked':pdf_available}))
+    print(json.dumps({'status':'PASS','objects':objects,'dialogs':dialogs,'keyboard_export':keyboard_export,'margins':margins,'vtt':vtt,'polygons':polygons,'mobile':mobile,'followup':followup,'texture':texture,'studio':studio,'editor':editor,'layer_brush':layer_brush,'tileset':tileset,'groups':groups,'reliability':reliability,'autosave':autosave,'geometry':geometry,'lighting':lighting,'border_pixels':borders,'pdf_download_checked':pdf_available}))
 
 if __name__=='__main__':
     run()

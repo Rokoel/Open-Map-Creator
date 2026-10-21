@@ -1,3 +1,36 @@
+# Open Map Creator v2.0.0
+
+Released October 21, 2026.
+
+This release makes object editing and layer work easier, replaces browser dialogs with in-app pop-ups, and fixes export settings that could fall out of sync.
+
+## Object editing
+
+- Move selections with the arrow keys: one cell per press, or ten cells with Shift. Movement supports undo/redo and keeps the existing grid collision protection.
+- Resize groups with square handles, numeric width and height fields, or a double-click on an edge. Members and their spacing scale together, preserving proportions. Rotation still uses the shared pivot.
+- Uploaded images stay in the Object menu as named thumbnails. Choose one to place it again. The library and selected image are saved with the project; older projects recover images from their placed objects.
+- Opening Layers, switching layers, renaming, and reordering keep the current drawing tool active.
+- Right-click or right-drag to erase cells, brush marks, images, polygons, and lights on the active visible layer. Each stroke can be undone. The separate Eraser tab and its E shortcut have been removed.
+
+## Dialogs and export
+
+- Alerts, confirmations, and object-size prompts now appear inside the app. Dialogs support keyboard navigation, cancellation, inline number validation, and queued messages.
+- PDF resolution defaults to 300 DPI. Existing projects keep their saved resolution.
+- Sheet margins, padding, page guides, and export-area fields stay in sync across edits, project loading, undo/redo, and resets. Reset everything restores 300 DPI and 5 mm sheet margins.
+
+## Documentation
+
+- Shortened the README, contributing guide, and credits, keeping setup instructions, usage details, and third-party notices.
+- Removed the code of conduct and its references.
+
+## Compatibility and checks
+
+Existing JSON projects continue to load. New exports identify version 2.0.0 and include the reusable object library.
+
+The full Chromium browser suite passes, including new checks for group resizing, image-library save/reload, tool preservation, per-layer right-drag erasing, in-app dialogs, and export-setting synchronization. Existing PDF, VTT, rendering, touch, and autosave checks also pass.
+
+---
+
 # Open Map Creator v1.6.0
 
 Released October 20, 2026.

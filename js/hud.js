@@ -1,4 +1,5 @@
-import { sheetMarginDefaults } from "./pdf-layout.js";
+import { showAlert, askConfirm } from "./dialogs.js";
+import { defaultExportSettings, sheetMarginDefaults } from "./pdf-layout.js";
 import { icon } from "./icons.js";
 import { constants } from "./constants.js";
 import { borderDefaults, lightDefaults, ambientDefaults } from "./scene.js";
@@ -8,7 +9,6 @@ const names = {
   pan: "Pan",
   gridDraw: "Grid brush",
   freeDraw: "Freehand brush",
-  erase: "Eraser",
   addObject: "Image object",
   select: "Selection",
   light: "Light source",
@@ -80,11 +80,13 @@ export class HUD {
           key === "padding"
             ? Math.max(0, Math.min(10, Number($(id).value) || 0))
             : $(id).value;
+        this.updateExportControls();
         this.commit();
       };
     }
     document.addEventListener("keydown", (e) => {
       if (
+        $("appDialog").open || canvasManager.isErasing ||
         e.target.closest("input,textarea,select") ||
         e.ctrlKey ||
         e.metaKey ||
@@ -97,7 +99,6 @@ export class HUD {
         v: "select",
         g: "gridDraw",
         b: "freeDraw",
-        e: "erase",
         o: "addObject",
         l: "light",
         k: "layers",
@@ -145,32 +146,63 @@ export class HUD {
     };
     $("resetExportArea").onclick = () => {
       delete cm.exportSettings.region;
-      this.updateExportFields(); this.commit();
+      this.updateExportControls(); this.commit();
     };
     this.updateExportFields();
+    $("exportAreaFields").addEventListener("change", () => this.updateExportControls());
     const p = $("exportPageFields");
+    p.addEventListener("change", () => this.updateExportControls());
     for (const [key, label, type, fallback, options] of [
       ["orientation","Orientation","select","landscape",{choices:[["landscape","Landscape"],["portrait","Portrait"]]}],
       ["paper","Paper","select","A4",{choices:[["A4","A4"],["A3","A3"]]}],
       ["cellSize","Cell size (cm)","number",2.5,{min:.1,max:10,step:.1}],
-      ["dpi","Resolution (DPI)","number",150,{min:36,max:600,step:1}],
-    ]) this.field(p,label,type,cm.exportSettings[key] ?? fallback,v => cm.exportSettings[key] = v,options);
+      ["dpi","Resolution (DPI)","number",300,{min:36,max:600,step:1}],
+    ]) {
+      const input = this.field(p,label,type,cm.exportSettings[key] ?? fallback,v => {
+        cm.exportSettings[key] = v;
+        this.updateExportControls(true);
+      },options);
+      input.dataset.exportSetting = key;
+    }
     this.hint(p, "These margins reserve blank paper on every sheet and recalculate the PDF page breaks. Larger margins can add pages without shrinking cells. Print-app margins act on the finished pages; print this PDF at Actual size / 100%.");
     for (const [side, fallback] of Object.entries(sheetMarginDefaults)) {
       const input = this.field(p, `Sheet ${side} margin (mm)`, "number", cm.exportSettings.sheetMargins?.[side] ?? fallback,
-        value => cm.exportSettings.sheetMargins = { ...sheetMarginDefaults, ...cm.exportSettings.sheetMargins, [side]:value },
+        value => {
+          cm.exportSettings.sheetMargins = { ...sheetMarginDefaults, ...cm.exportSettings.sheetMargins, [side]:value };
+          this.updateExportControls(true);
+        },
         { min:0, max:100, step:.5 });
       input.dataset.sheetMargin = side;
     }
   }
-  updateExportFields() {
+  updateExportControls(preserveFocus = false) {
+    const settings = { ...defaultExportSettings(), ...this.canvasManager.exportSettings };
+    const setValue = (input, value) => {
+      if (input && !(preserveFocus && input === document.activeElement)) input.value = value;
+    };
+    for (const input of $("exportPageFields").querySelectorAll("[data-export-setting]"))
+      setValue(input, settings[input.dataset.exportSetting]);
+    for (const [key, id] of Object.entries({ orientation:"pdfOrientation", paper:"pdfPaper", dpi:"pdfDpi",
+      cellSize:"pdfCellSize", colorMode:"pdfColorMode", padding:"pdfPadding" }))
+      setValue($(id), settings[key]);
+    for (const [side, fallback] of Object.entries(sheetMarginDefaults)) {
+      const value = settings.sheetMargins?.[side] ?? fallback;
+      setValue($("exportPageFields").querySelector(`[data-sheet-margin="${side}"]`), value);
+      setValue($(`pdfMargin${side[0].toUpperCase()}${side.slice(1)}`), value);
+    }
+    setValue($("exportPadding"), settings.padding);
+    setValue($("exportColorMode"), settings.colorMode);
+    this.updateExportFields(preserveFocus);
+    $("pdfForm").dispatchEvent(new Event("input", { bubbles:true }));
+  }
+  updateExportFields(preserveFocus = false) {
     const cm = this.canvasManager, p = $("exportAreaFields");
     const b = cm.getExportBounds();
-    // Keep focused inputs stable while dragging or typing.
+    // Preserve in-progress text during live edits; state refreshes replace it.
     if (p.children.length) {
       const values = [b.minX,b.minY,b.width,b.height];
       p.querySelectorAll("input").forEach((input,i) => {
-        if (document.activeElement !== input) input.value = Number(values[i].toFixed(4));
+        if (!preserveFocus || document.activeElement !== input) input.value = Number(values[i].toFixed(4));
       });
       return;
     }
@@ -182,6 +214,7 @@ export class HUD {
         if (key === "width") b.maxX = b.minX+v;
         if (key === "height") b.maxY = b.minY+v;
         cm.exportSettings.region = {minX:b.minX,minY:b.minY,maxX:b.maxX,maxY:b.maxY};
+        this.updateExportControls(true);
       },{min:["width","height"].includes(key) ? .25 : -100000,max:100000,step:.25});
     }
   }
@@ -192,17 +225,7 @@ export class HUD {
     this.loadInstrumentSettings(this.canvasManager.activeInstrument);
   }
   setMapCollapsed(collapsed) {
-    if (!collapsed) {
-      this.updateExportFields();
-      $("exportPageFields").querySelectorAll("[data-sheet-margin]").forEach(input => {
-        const side = input.dataset.sheetMargin;
-        input.value = this.canvasManager.exportSettings.sheetMargins?.[side] ?? sheetMarginDefaults[side];
-      });
-      for (const [i,key] of ["orientation","paper","cellSize","dpi"].entries()) {
-        const input = $("exportPageFields").querySelectorAll("input,select")[i];
-        if (input) input.value = this.canvasManager.exportSettings[key] ?? ["landscape","A4",2.5,150][i];
-      }
-    }
+    if (!collapsed) this.updateExportControls();
     $("hud").classList.toggle("is-collapsed", collapsed);
     $("mapContents").hidden = collapsed;
     $("mapToggle").setAttribute("aria-expanded", String(!collapsed));
@@ -225,17 +248,16 @@ export class HUD {
       this.chooseTool("layers");
       return;
     }
-    if (this.canvasManager.activeInstrument === "layers")
-      this.canvasManager.setActiveInstrument(
-        this.lastDrawingTool || "gridDraw",
-      );
+    this.showingLayers = false;
     this.loadInstrumentSettings(this.canvasManager.activeInstrument);
   }
   chooseTool(tool) {
-    if (tool === "layers" && this.canvasManager.activeInstrument !== "layers")
-      this.lastDrawingTool = this.canvasManager.activeInstrument;
-    this.canvasManager.setActiveInstrument(tool);
-    this.loadInstrumentSettings(tool);
+    if (tool === "layers") this.showingLayers = true;
+    else {
+      this.showingLayers = false;
+      this.canvasManager.setActiveInstrument(tool);
+    }
+    this.loadInstrumentSettings(this.canvasManager.activeInstrument);
     this.syncToolbar();
   }
   syncToolbar() {
@@ -243,7 +265,7 @@ export class HUD {
     document
       .querySelectorAll("[data-instrument]")
       .forEach((b) =>
-        b.setAttribute("aria-pressed", String(b.dataset.instrument === tool)),
+        b.setAttribute("aria-pressed", String(b.dataset.instrument === "layers" ? !!this.showingLayers : b.dataset.instrument === tool)),
       );
     $("toolStatus").textContent = names[tool];
   }
@@ -341,12 +363,12 @@ export class HUD {
       reader.onload = () => {
         const image = new Image();
         image.onload = async () => {
-          await onload(image);
+          await onload(image, file);
           this.commit();
           this.loadInstrumentSettings(this.canvasManager.activeInstrument);
         };
         image.onerror = () =>
-          alert("This image could not be opened. Try PNG, JPEG, or SVG.");
+          showAlert("This image could not be opened. Try PNG, JPEG, or SVG.");
         image.src = reader.result;
       };
       reader.readAsDataURL(file);
@@ -390,11 +412,12 @@ export class HUD {
       cm.addLayer();
       this.refresh();
     };
-    $("removeLayer").onclick = () => {
+    $("removeLayer").onclick = async () => {
       if (cm.layers.length === 1) return;
       if (
-        confirm(
+        await askConfirm(
           `Delete “${cm.layers[cm.activeLayerIndex].name}” and its artwork?`,
+          { title:"Delete layer", acceptLabel:"Delete layer", danger:true },
         )
       ) {
         cm.removeActiveLayer();
@@ -709,6 +732,7 @@ export class HUD {
     $("liveLighting").disabled = !cm.bakedLighting;
   }
   updateAppearanceControls() {
+    this.updateExportControls();
     this.updateLightingStatus();
     const cm = this.canvasManager,
       b = { ...borderDefaults, ...cm.gridBorderOptions },
@@ -842,7 +866,7 @@ export class HUD {
         this.commit();
         this.loadInstrumentSettings("gridDraw");
       } catch {
-        alert("A texture could not be opened. Use PNG, JPEG, or SVG images.");
+        showAlert("A texture could not be opened. Use PNG, JPEG, or SVG images.");
       }
     };
     if (!cm.gridImageList.length) return;
@@ -914,9 +938,9 @@ export class HUD {
   loadInstrumentSettings(instrument) {
     const cm = this.canvasManager,
       p = $("instrumentSettings");
-    $("toolPanel").hidden = instrument === "layers";
-    $("appearancePanel").hidden = instrument !== "layers";
-    $("inspectorToolTitle").textContent = names[instrument] || "Instrument";
+    $("toolPanel").hidden = !!this.showingLayers;
+    $("appearancePanel").hidden = !this.showingLayers;
+    $("inspectorToolTitle").textContent = this.showingLayers ? "Layers" : names[instrument] || "Instrument";
     p.replaceChildren();
     const h = document.createElement("h3");
     h.textContent = names[instrument];
@@ -1136,10 +1160,29 @@ export class HUD {
         p,
         "Upload an image, then click the map to place it on the active layer. Switch to Select to move, resize, and rotate.",
       );
-      this.upload(p, "Object image", cm.customObjectImageSrc, (img) => {
-        cm.customObjectImage = img;
-        cm.customObjectImageSrc = img.src;
-      });
+      this.upload(p, "Object image", null, (img, file) => cm.addObjectImage(img, file.name));
+      const library = document.createElement("div");
+      library.className = "object-library";
+      library.setAttribute("role", "group");
+      library.setAttribute("aria-label", "Uploaded objects");
+      for (const asset of cm.objectImageList) {
+        const button = this.button(library, "", () => {
+          cm.selectObjectImage(asset.src);
+          this.commit();
+          this.loadInstrumentSettings("addObject");
+        });
+        button.className = "object-asset";
+        button.title = asset.name;
+        button.setAttribute("aria-label", asset.name);
+        button.setAttribute("aria-pressed", String(asset.src === cm.customObjectImageSrc));
+        const image = document.createElement("img");
+        image.src = asset.src;
+        image.alt = "";
+        const label = document.createElement("span");
+        label.textContent = asset.name;
+        button.append(image, label);
+      }
+      p.append(library);
     } else if (instrument === "light") {
       this.field(
         p,
@@ -1171,11 +1214,12 @@ export class HUD {
         objs.length === 1 && objs[0].type === "light"
           ? "Drag the light marker to move it. Adjust its color, brightness, range, or rebounds below."
           : cm.selectionGroup()
-            ? `${count} grouped objects. Drag a member to move the group; use the round handle to rotate around the marked pivot. Ctrl/Cmd+Shift+G ungroups.`
+            ? `${count} grouped objects. Drag to move, use square handles to resize, or the round handle to rotate. Ctrl/Cmd+Shift+G ungroups.`
             : count
               ? `${count} selected. Drag to move. Use square handles to resize and the round handle to rotate. Shift constrains proportions or snaps rotation. Double-click a side to edit its length in cells.`
               : "Click an object or drag a selection box. Selection and editing apply to the active visible layer.",
       );
+      if (count) this.hint(p, "Arrow keys move one cell; Shift+Arrow moves ten cells.");
       if (cm.selectedObjects.grid.length) {
         const cells = cm.selectedObjects.grid
             .map((id) => cm.layers[cm.activeLayerIndex].objects.get(id))
@@ -1269,6 +1313,17 @@ export class HUD {
       const group = cm.selectionGroup(),
         members = cm.selectedMembers();
       if (group) {
+        let widthInput, heightInput;
+        const resize = (dimension, value) => {
+          cm.setGroupDimension(dimension, value * cm.currentCellSize);
+          const frame = cm.selectionGroup();
+          if (dimension !== "width") widthInput.value = Number((frame.width/cm.currentCellSize).toFixed(4));
+          if (dimension !== "height") heightInput.value = Number((frame.height/cm.currentCellSize).toFixed(4));
+        };
+        widthInput = this.field(p, "Group width (cells)", "number", Number((group.width/cm.currentCellSize).toFixed(4)),
+          v => resize("width",v), { min:.05, max:10000, step:.1 });
+        heightInput = this.field(p, "Group height (cells)", "number", Number((group.height/cm.currentCellSize).toFixed(4)),
+          v => resize("height",v), { min:.05, max:10000, step:.1 });
         this.field(
           p,
           "Group rotation (°)",
@@ -1279,7 +1334,7 @@ export class HUD {
         );
         this.hint(
           p,
-          "The cross marks the shared pivot. Drag the group's round handle to rotate all members together.",
+          "Drag a square handle to resize the group or the round handle to rotate. Resizing keeps the members' proportions and scales their spacing together.",
         );
       }
       const groupButton = this.button(
@@ -1426,6 +1481,6 @@ export class HUD {
         },
         "trash",
       ).disabled = !count;
-    } else this.hint(p, "Drag to erase artwork on the active visible layer.");
+    }
   }
 }
