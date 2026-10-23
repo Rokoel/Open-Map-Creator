@@ -1,6 +1,6 @@
 # Credits
 
-Open Map Creator is maintained by [Rokoel](https://github.com/Rokoel). Project code is released under the [MIT license](LICENCE).
+TTRPG Map Creator is maintained by [Rokoel](https://github.com/Rokoel). Project code is released under the [MIT license](LICENCE).
 
 ## Third-party assets and libraries
 

@@ -1,13 +1,13 @@
-# Open Map Creator
+# TTRPG Map Creator
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENCE)
-[![Release: v2.0.0](https://img.shields.io/badge/release-v2.0.0-blue.svg)](https://github.com/Rokoel/Open-Map-Creator/releases/tag/v2.0.0)
+[![Release: v2.0.0](https://img.shields.io/badge/release-v2.0.0-blue.svg)](https://github.com/Rokoel/TTRPG-Map-Creator/releases/tag/v2.0.0)
 
 A browser map editor for tabletop RPGs. Draw dungeons, add textures and objects, place lights, and export a map for a virtual tabletop or print it across several sheets at the cell size you choose.
 
-**[Open the app](https://rokoel.github.io/Open-Map-Creator/)** · **[Release notes](RELEASE_NOTES.md)** · **[Example PDF](docs/examples/open-map-creator-example.pdf)**
+**[Open the app](https://rokoel.github.io/TTRPG-Map-Creator/)** · **[Release notes](RELEASE_NOTES.md)** · **[Example PDF](docs/examples/ttrpg-map-creator-example.pdf)**
 
-![Open Map Creator in dark mode](docs/media/editor-layers-lighting.png)
+![TTRPG Map Creator in dark mode](docs/media/editor-layers-lighting.png)
 
 <a id="polygons-touch-controls-and-export-framing"></a>
 
@@ -106,15 +106,15 @@ The **File budget** limits download size; 0 disables it. JPG and WebP quality ca
 | --- | --- |
 | [![Cell beside a ruler](docs/media/printed-cell-2-5cm.jpg)](docs/media/printed-cell-2-5cm.jpg) | [![Four-sheet map](docs/media/printed-map-four-sheets.jpg)](docs/media/printed-map-four-sheets.jpg) |
 
-Download the [four-page example PDF](docs/examples/open-map-creator-example.pdf).
+Download the [four-page example PDF](docs/examples/ttrpg-map-creator-example.pdf).
 
 ## Run locally
 
 There is no build step. Serve the repository over HTTP so its JavaScript modules load:
 
 ```bash
-git clone https://github.com/Rokoel/Open-Map-Creator.git
-cd Open-Map-Creator
+git clone https://github.com/Rokoel/TTRPG-Map-Creator.git
+cd TTRPG-Map-Creator
 python3 -m http.server 8000
 ```
 
@@ -122,6 +122,6 @@ Open **http://localhost:8000**. PDF export loads jsPDF from a CDN; the interface
 
 ## Contributing
 
-See [CONTRIBUTING.MD](CONTRIBUTING.MD) for local setup, browser tests, and pull requests. Bugs and feature requests go in [Issues](https://github.com/Rokoel/Open-Map-Creator/issues).
+See [CONTRIBUTING.MD](CONTRIBUTING.MD) for local setup, browser tests, and pull requests. Bugs and feature requests go in [Issues](https://github.com/Rokoel/TTRPG-Map-Creator/issues).
 
-Open Map Creator uses the [MIT license](LICENCE). Third-party libraries and assets are listed in [CREDITS.md](CREDITS.md).
+TTRPG Map Creator uses the [MIT license](LICENCE). Third-party libraries and assets are listed in [CREDITS.md](CREDITS.md).

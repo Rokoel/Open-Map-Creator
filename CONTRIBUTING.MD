@@ -1,14 +1,14 @@
 # Contributing
 
-For bugs, [open an issue](https://github.com/Rokoel/Open-Map-Creator/issues) with steps to reproduce, what you expected, what happened, and your browser. A screenshot, console error, or small JSON project can help. For feature requests, explain what you want to do with the map editor.
+For bugs, [open an issue](https://github.com/Rokoel/TTRPG-Map-Creator/issues) with steps to reproduce, what you expected, what happened, and your browser. A screenshot, console error, or small JSON project can help. For feature requests, explain what you want to do with the map editor.
 
 ## Run locally
 
 The app uses plain JavaScript, HTML, CSS, and Canvas 2D. There is no build step.
 
 ```bash
-git clone https://github.com/Rokoel/Open-Map-Creator.git
-cd Open-Map-Creator
+git clone https://github.com/Rokoel/TTRPG-Map-Creator.git
+cd TTRPG-Map-Creator
 python3 -m http.server 8000
 ```
 

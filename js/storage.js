@@ -22,7 +22,7 @@ export class StorageManager {
       const mapData = this.canvasManager.getMapData();
       // Add versioning info
       mapData.version = constants.saveFileVersion;
-      mapData.appName = "OpenMapCreator"; // Identify the app
+      mapData.appName = "TTRPGMapCreator"; // Identify the app
 
       const mapJSON = JSON.stringify(mapData, null, 2); // Pretty print JSON
       const blob = new Blob([mapJSON], { type: "application/json" });

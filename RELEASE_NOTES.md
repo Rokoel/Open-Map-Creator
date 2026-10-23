@@ -1,4 +1,4 @@
-# Open Map Creator v2.0.0
+# TTRPG Map Creator v2.0.0
 
 Released October 21, 2026.
 
@@ -31,13 +31,13 @@ The full Chromium browser suite passes, including new checks for group resizing,
 
 ---
 
-# Open Map Creator v1.6.0
+# TTRPG Map Creator v1.6.0
 
 Released October 20, 2026.
 
 Export maps for virtual tabletops and print full-size maps on printers that need white margins on each sheet.
 
-**[Open the app](https://rokoel.github.io/Open-Map-Creator/)** · **[Printing guide](README.MD#printing-on-sheets-with-margins)** · **[VTT guide](README.MD#virtual-tabletop-exports)**
+**[Open the app](https://rokoel.github.io/TTRPG-Map-Creator/)** · **[Printing guide](README.MD#printing-on-sheets-with-margins)** · **[VTT guide](README.MD#virtual-tabletop-exports)**
 
 ## Added
 
@@ -62,13 +62,13 @@ The full Chromium suite covers VTT encoders and geometry, actual downloads, 24 p
 
 ---
 
-# Open Map Creator v1.5.0
+# TTRPG Map Creator v1.5.0
 
 Released October 20, 2026.
 
 Draw textured polygons, edit maps with touch controls, and choose exactly which area to export. The editor remains a static browser application with no build step.
 
-**[Open the app](https://rokoel.github.io/Open-Map-Creator/)** · **[Usage guide](README.MD#polygons-touch-controls-and-export-framing)**
+**[Open the app](https://rokoel.github.io/TTRPG-Map-Creator/)** · **[Usage guide](README.MD#polygons-touch-controls-and-export-framing)**
 
 ## Added
 
@@ -92,13 +92,13 @@ The full Chromium integration suite passes, including polygon texture clipping, 
 
 ---
 
-# Open Map Creator v1.4.0
+# TTRPG Map Creator v1.4.0
 
 Released October 17, 2026.
 
-Open Map Creator v1.4.0 adds layer-aware lighting, procedural borders, object groups, randomized tilesets and brushes, and more reliable saving and export. The editor remains a static browser application built with JavaScript, HTML, CSS, and Canvas 2D, with no React/Vue or build step.
+TTRPG Map Creator v1.4.0 adds layer-aware lighting, procedural borders, object groups, randomized tilesets and brushes, and more reliable saving and export. The editor remains a static browser application built with JavaScript, HTML, CSS, and Canvas 2D, with no React/Vue or build step.
 
-**[Use Open Map Creator](https://rokoel.github.io/Open-Map-Creator/)** · **[Guide and gallery](README.MD)** · **[Four-page example PDF](docs/examples/open-map-creator-example.pdf)**
+**[Use TTRPG Map Creator](https://rokoel.github.io/TTRPG-Map-Creator/)** · **[Guide and gallery](README.MD)** · **[Four-page example PDF](docs/examples/ttrpg-map-creator-example.pdf)**
 
 ## Added
 
